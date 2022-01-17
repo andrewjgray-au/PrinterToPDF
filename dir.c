@@ -1,7 +1,9 @@
 #include<sys/stat.h>
 #include<unistd.h>
 #include<dirent.h>
+#ifndef __APPLE__
 #include<error.h>
+#endif
 
 /* Retro-Printer Directory Handler - Program by RWAP Software to tidy the directory used to store the temporary files
  * v1.0

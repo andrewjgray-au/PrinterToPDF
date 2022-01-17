@@ -2,3 +2,6 @@
 PrinterConvert.c.bak
 *.prn
 *.pdf
+*.o
+printerToPDF
+

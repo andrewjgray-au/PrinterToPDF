@@ -14,6 +14,13 @@ The PrinterConvert code works by creating a bitmap image in memory which is then
 RWAP Software
 January 2019
 
+<b>D12 FONT FORK</b>
+This fork of the project supports 12x12 fonts. The 12x12 fonts have the file extension .D12. The Epson-Standard.D12 font file is generated from the Epson-Standard.txt file using the createfontfile program. The Epson-Standard.txt file is based on https://github.com/MurphyMc/EPHEX-80/blob/master/ephex_charset.py.
+
+This fork also supports building and running on macOS.
+
+Andrew Gray
+January 2022
 
 <b>PRE-REQUISITES</b>
 You will need libpng, ImageMagick, SDL libHARU installed on Linux. 
@@ -31,6 +38,13 @@ You may also be able to use : <code>sudo apt install libhpdf-2.2.1 libhpdf-dev</
 
 
 Ensure you copy BOTH dir.c and PrinterConvert.c to your working directory
+
+<b>MACOS</b>
+Alternatively, you will need SDL and libHARU installed on macOS.
+
+Using brew, these can be installed by running:
+<code>brew install libharu
+brew install sdl2</code>
 
 <b>COMPILING</b>
 On some versions of Linux, you will need to change the reference in line 8 to read:

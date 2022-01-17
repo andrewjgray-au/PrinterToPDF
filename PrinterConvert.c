@@ -7,8 +7,9 @@
 #include <unistd.h>
 #include <png.h>
 #include <setjmp.h>
-#include "/usr/include/hpdf.h"
-#include "/usr/include/SDL/SDL.h"
+#include <libgen.h>
+#include <hpdf.h>
+#include <SDL/SDL.h>
 #include "dir.c"
 
 const char* version = "v1.7";
@@ -450,7 +451,7 @@ void erasepage()
     memset(printermemory, WHITE , pageSetWidth * pageSetHeight);
 }
 
-int initialize(const char* input_filename)
+void initialize(const char* input_filename)
 {
     // Choose PNG Generation mode - 1 = in memory (fast but uses a lot more memory), 2 = use external file (slower, but less memory)
     imageMode = 1;
@@ -499,7 +500,7 @@ int initialize(const char* input_filename)
     if (inputFile == NULL)
     {
         fprintf(stderr, "Failed to open input file: '%s'\n", input_filename);
-        return -1;
+        exit(1);
     }
 
 }
@@ -889,8 +890,29 @@ int hPixelWidth, vPixelWidth;
 FILE *f;
 FILE *fp = NULL;
 
-#define FONT_SIZE  4096
-char fontx[FONT_SIZE];
+#define FONT_CHARACTERS 256
+#define FONT_C16_ROWS 16 // Rows per character
+#define FONT_C16_BYTES 1 // Bytes per row
+#define FONT_C16_COLUMNS 8
+#define FONT_C16_UNDERSCORE_ROW 14
+#define FONT_C16_STRIKETHROUGH_ROW 8
+#define FONT_C16_OVERSCORE_ROW 1
+#define FONT_D12_ROWS 12 // Rows per character
+#define FONT_D12_BYTES 2 // Bytes per row
+#define FONT_D12_SIZE (FONT_CHARACTERS * FONT_D12_ROWS * FONT_D12_BYTES)
+#define FONT_D12_COLUMNS 12
+#define FONT_D12_UNDERSCORE_ROW 8
+#define FONT_D12_STRIKETHROUGH_ROW 3
+#define FONT_D12_OVERSCORE_ROW 1
+#define FONT_D12_SUFFIX ".D12"
+
+int fontRows;
+int fontBytes;
+int fontColumns;
+int fontUnderscoreRow, fontStrikethroughRow, fontOverscoreRow;
+int fontSize;
+
+unsigned char fontx[FONT_D12_SIZE];
 
 void erasesdl()
 {
@@ -1697,7 +1719,23 @@ int openfont(const char *filename)
     if (font == NULL) {
         rc = -1;
     } else {
-        if (fread(fontx, 1, FONT_SIZE, font) != FONT_SIZE) {
+      if (strlen(filename) > 4 && !strcmp(filename + strlen(filename) - 4, FONT_D12_SUFFIX)) {
+        fontColumns = FONT_D12_COLUMNS;
+        fontRows = FONT_D12_ROWS;
+        fontBytes = FONT_D12_BYTES;
+        fontUnderscoreRow = FONT_D12_UNDERSCORE_ROW;
+        fontStrikethroughRow = FONT_D12_STRIKETHROUGH_ROW;
+        fontOverscoreRow = FONT_D12_OVERSCORE_ROW;
+      } else {
+        fontColumns = FONT_C16_COLUMNS;
+        fontRows = FONT_C16_ROWS;
+        fontBytes = FONT_C16_BYTES;  
+        fontUnderscoreRow = FONT_C16_UNDERSCORE_ROW;
+        fontStrikethroughRow = FONT_C16_STRIKETHROUGH_ROW;
+        fontOverscoreRow = FONT_C16_OVERSCORE_ROW;                    
+      }
+      fontSize = fontRows * fontBytes * FONT_CHARACTERS;
+        if (fread(fontx, 1, fontSize, font) != fontSize) {
             rc = -1;
         }
 
@@ -1712,11 +1750,11 @@ int printcharx(unsigned char chr)
 {
     unsigned int adressOfChar = 0;
     unsigned int chr2;
-    int i, fByte, extendedChar = 0;
+    int i, b, fByte, extendedChar = 0;
     int boldoffset = 0;
     int boldoffset11= 0;
     int italiccount=0;
-    unsigned char xd;
+    unsigned int xd;
     float divisor=1;
     int yposoffset=0;
     int charHeight = 24; // 24 pin printer - characters 24 pixels high
@@ -1729,7 +1767,8 @@ int printcharx(unsigned char chr)
         chr2 = chr2 - 128; // Normally upper character set - italic version of the lower character set
         chr = (unsigned char) chr2;
     }
-    adressOfChar = chr2 << 4;  // Multiply with 16 to Get Adress
+    adressOfChar = chr2 * fontRows * fontBytes;  // Multiply with rows per character and
+                                                 // bytes per row to get address
     hPixelWidth = printerdpih / (float) cdpih;
     vPixelWidth = printerdpiv / (float) cdpiv;
     character_spacing = 0;
@@ -1740,14 +1779,14 @@ int printcharx(unsigned char chr)
     if (letterQuality == 1) {
         // LETTER QUALITY 360 x 144 dpi
         // -- uses (360 / cpi) x 24 pixel font - default is 10 cpi (36 dots), 12 cpi (10 dots), 15 cpi (24 dots)
-        fontDotWidth = (float) hPixelWidth * (((float) 360 / (float) cpi) / (float) 24);
-        fontDotHeight = (float) vPixelWidth * ((float) charHeight / (float) 16);
+        fontDotWidth = (float) hPixelWidth * (((float) 360 / (float) cpi) / (float) (fontColumns * 3));
+        fontDotHeight = (float) vPixelWidth * ((float) charHeight / (float) fontRows);
         if (chrSpacing > 0) character_spacing = printerdpih * ((float) chrSpacing / (float) 180);
     } else {
         // DRAFT QUALITY 120 x 144 dpi
         // -- uses (120 / cpi) x 24 pixel font - default is 10 cpi (12 dots), 12 cpi (10 dots), 15 cpi (8 dots)
-        fontDotWidth = (float) hPixelWidth * (((float) 120 / (float) cpi) / (float) 8);
-        fontDotHeight = (float) vPixelWidth * ((float) charHeight / (float) 16);
+        fontDotWidth = (float) hPixelWidth * (((float) 120 / (float) cpi) / (float) fontColumns);
+        fontDotHeight = (float) vPixelWidth * ((float) charHeight / (float) fontRows);
         if (chrSpacing > 0) character_spacing = printerdpih * ((float) chrSpacing / (float) 120);
     }
 
@@ -1822,45 +1861,49 @@ int printcharx(unsigned char chr)
     }
 
     if (direction_of_char == 1) {
-        for (i = 0; i <= 15; i++) {
-            xd = fontx[adressOfChar + i];
+        for (i = 0; i < fontRows; i++) {
+          for (b = 0, xd = 0; b < fontBytes; b++) {
+            xd <<= 8;
+            xd |= fontx[adressOfChar + i * fontBytes + b];
+          }
             // TO BE UPDATED as Underlining etc covers spaces, and non-graphics characters
             if ((underlined>0) || (strikethrough>0) || (overscore>0)) {
-                if ((i==14) && ((underlined==1) || (underlined==3)) ) xd=255;
-                if ((i==13) && ((underlined==2) || (underlined==4)) ) xd=255;
-                if ((i==15) && ((underlined==2) || (underlined==4)) ) xd=255;
+                if ((i==fontUnderscoreRow) && ((underlined==1) || (underlined==3)) ) xd=~0;
+                if ((i==fontUnderscoreRow-1) && ((underlined==2) || (underlined==4)) ) xd=~0;
+                if ((i==fontUnderscoreRow+1) && ((underlined==2) || (underlined==4)) ) xd=~0;
 
-                if ((i==8 ) && ((strikethrough==1) || (strikethrough==3)) ) xd=255;
-                if ((i==7 ) && ((strikethrough==2) || (strikethrough==4)) ) xd=255;
-                if ((i==9 ) && ((strikethrough==2) || (strikethrough==4)) ) xd=255;
+                if ((i==fontStrikethroughRow ) && ((strikethrough==1) || (strikethrough==3)) ) xd=~0;
+                if ((i==fontStrikethroughRow-1 ) && ((strikethrough==2) || (strikethrough==4)) ) xd=~0;
+                if ((i==fontStrikethroughRow+1 ) && ((strikethrough==2) || (strikethrough==4)) ) xd=~0;
 
-                if ((i==1 ) && ((overscore==1) || (overscore==3)) ) xd=255;
-                if ((i==0 ) && ((overscore==2) || (overscore==4)) ) xd=255;
-                if ((i==3 ) && ((overscore==2) || (overscore==4)) ) xd=255;
+                if ((i==fontOverscoreRow ) && ((overscore==1) || (overscore==3)) ) xd=~0;
+                if ((i==fontOverscoreRow-1 ) && ((overscore==2) || (overscore==4)) ) xd=~0;
+                if ((i==fontOverscoreRow+2 ) && ((overscore==2) || (overscore==4)) ) xd=~0;
             }
 
-            for (fByte = xpos + italiccount * (7-i); fByte < xpos + 8 * hPixelWidth + italiccount * (7-i); fByte+= hPixelWidth) {
-                if (xd & 128) putpixelbig(fByte, ypos + yposoffset + i * vPixelWidth,
+            for (fByte = xpos + italiccount * (fontRows-1-i); fByte < xpos + fontColumns * hPixelWidth + italiccount * (fontRows-1-i); fByte+= hPixelWidth) {
+                if (xd & (128 << ((fontBytes-1) * 8))) putpixelbig(fByte, ypos + yposoffset + i * vPixelWidth,
                                 hPixelWidth + boldoffset, vPixelWidth + boldoffset11);
                 xd = xd << 1;
             }
         }
     } else {
+      // Reverse font direction only supported for 8x16 fonts.
         for (i = 0; i <= 15; i++) {
             xd = fontx[adressOfChar + i];
             // TO BE UPDATED as Underlining etc covers spaces, and non-graphics characters
             if ((underlined>0) || (strikethrough>0) || (overscore>0)) {
-                if ((i==14) && ((underlined==1) || (underlined==3)) ) xd=255;
-                if ((i==13) && ((underlined==2) || (underlined==4)) ) xd=255;
-                if ((i==15) && ((underlined==2) || (underlined==4)) ) xd=255;
+                if ((i==fontUnderscoreRow) && ((underlined==1) || (underlined==3)) ) xd=255;
+                if ((i==fontUnderscoreRow-1) && ((underlined==2) || (underlined==4)) ) xd=255;
+                if ((i==fontUnderscoreRow+1) && ((underlined==2) || (underlined==4)) ) xd=255;
 
-                if ((i==8 ) && ((strikethrough==1) || (strikethrough==3)) ) xd=255;
-                if ((i==7 ) && ((strikethrough==2) || (strikethrough==4)) ) xd=255;
-                if ((i==9 ) && ((strikethrough==2) || (strikethrough==4)) ) xd=255;
+                if ((i==fontStrikethroughRow ) && ((strikethrough==1) || (strikethrough==3)) ) xd=255;
+                if ((i==fontStrikethroughRow-1 ) && ((strikethrough==2) || (strikethrough==4)) ) xd=255;
+                if ((i==fontStrikethroughRow+1 ) && ((strikethrough==2) || (strikethrough==4)) ) xd=255;
 
-                if ((i==1 ) && ((overscore==1) || (overscore==3)) ) xd=255;
-                if ((i==0 ) && ((overscore==2) || (overscore==4)) ) xd=255;
-                if ((i==3 ) && ((overscore==2) || (overscore==4)) ) xd=255;
+                if ((i==fontOverscoreRow ) && ((overscore==1) || (overscore==3)) ) xd=255;
+                if ((i==fontOverscoreRow-1 ) && ((overscore==2) || (overscore==4)) ) xd=255;
+                if ((i==fontOverscoreRow+2 ) && ((overscore==2) || (overscore==4)) ) xd=255;
             }
             for (fByte = xpos + italiccount * (7-i); fByte < xpos + 8 * hPixelWidth + italiccount * (7-i); fByte+= hPixelWidth) {
                 if (xd & 001) putpixelbig(fByte,ypos + yposoffset+ i * vPixelWidth,
@@ -1870,23 +1913,23 @@ int printcharx(unsigned char chr)
         }
     }
     // Add the actual character width
-    xpos = xpos + (hPixelWidth * 8);
+    xpos = xpos + (hPixelWidth * fontColumns);
     // Add any character spacing - taking account of any continuous line scoring of printing
     if (character_spacing>0) {
         if ((underlined==1) || (underlined==2) || (strikethrough==1) || (strikethrough==2) || (overscore==1) || (overscore==2)) {
             for (i = 0; i <= 15; i++) {
                 xd = 0;
-                if ((i==14) && (underlined==1) ) xd=255;
-                if ((i==13) && (underlined==2) ) xd=255;
-                if ((i==15) && (underlined==2) ) xd=255;
+                if ((i==fontUnderscoreRow) && (underlined==1) ) xd=255;
+                if ((i==fontUnderscoreRow-1) && (underlined==2) ) xd=255;
+                if ((i==fontUnderscoreRow+1) && (underlined==2) ) xd=255;
 
-                if ((i==8 ) && (strikethrough==1) ) xd=255;
-                if ((i==7 ) && (strikethrough==2) ) xd=255;
-                if ((i==9 ) && (strikethrough==2) ) xd=255;
+                if ((i==fontStrikethroughRow ) && (strikethrough==1) ) xd=255;
+                if ((i==fontStrikethroughRow-1 ) && (strikethrough==2) ) xd=255;
+                if ((i==fontStrikethroughRow+1 ) && (strikethrough==2) ) xd=255;
 
-                if ((i==1 ) && (overscore==1) ) xd=255;
-                if ((i==0 ) && (overscore==2) ) xd=255;
-                if ((i==3 ) && (overscore==2) ) xd=255;
+                if ((i==fontOverscoreRow ) && (overscore==1) ) xd=255;
+                if ((i==fontOverscoreRow-1 ) && (overscore==2) ) xd=255;
+                if ((i==fontOverscoreRow+2 ) && (overscore==2) ) xd=255;
 
                 if (xd) {
                     putpixelbig(xpos, ypos + yposoffset + i * vPixelWidth,
@@ -1951,17 +1994,17 @@ int print_space(int showUnderline)
     if ((showUnderline==1) && ((underlined>0) || (strikethrough>0) || (overscore>0))) {
         for (i = 0; i <= 15; i++) {
             xd = 0;  // Nominally just space
-            if ((i==14) && ((underlined==1) || (underlined==3)) ) xd=255;
-            if ((i==13) && ((underlined==2) || (underlined==4)) ) xd=255;
-            if ((i==15) && ((underlined==2) || (underlined==4)) ) xd=255;
+            if ((i==fontUnderscoreRow) && ((underlined==1) || (underlined==3)) ) xd=255;
+            if ((i==fontUnderscoreRow-1) && ((underlined==2) || (underlined==4)) ) xd=255;
+            if ((i==fontUnderscoreRow+1) && ((underlined==2) || (underlined==4)) ) xd=255;
 
-            if ((i==8 ) && ((strikethrough==1) || (strikethrough==3)) ) xd=255;
-            if ((i==7 ) && ((strikethrough==2) || (strikethrough==4)) ) xd=255;
-            if ((i==9 ) && ((strikethrough==2) || (strikethrough==4)) ) xd=255;
+            if ((i==fontStrikethroughRow ) && ((strikethrough==1) || (strikethrough==3)) ) xd=255;
+            if ((i==fontStrikethroughRow-1 ) && ((strikethrough==2) || (strikethrough==4)) ) xd=255;
+            if ((i==fontStrikethroughRow+1 ) && ((strikethrough==2) || (strikethrough==4)) ) xd=255;
 
-            if ((i==1 ) && ((overscore==1) || (overscore==3)) ) xd=255;
-            if ((i==0 ) && ((overscore==2) || (overscore==4)) ) xd=255;
-            if ((i==3 ) && ((overscore==2) || (overscore==4)) ) xd=255;
+            if ((i==fontOverscoreRow ) && ((overscore==1) || (overscore==3)) ) xd=255;
+            if ((i==fontOverscoreRow-1 ) && ((overscore==2) || (overscore==4)) ) xd=255;
+            if ((i==fontOverscoreRow+1 ) && ((overscore==2) || (overscore==4)) ) xd=255;
 
             if (xd > 0) {
                 putpixelbig(xpos + fByte * hPixelWidth, ypos + yposoffset + i * vPixelWidth,
@@ -1977,17 +2020,17 @@ int print_space(int showUnderline)
         if ((underlined==1) || (underlined==2) || (strikethrough==1) || (strikethrough==2) || (overscore==1) || (overscore==2)) {
             for (i = 0; i <= 15; i++) {
                 xd = 0;
-                if ((i==14) && (underlined==1) ) xd=255;
-                if ((i==13) && (underlined==2) ) xd=255;
-                if ((i==15) && (underlined==2) ) xd=255;
+                if ((i==fontUnderscoreRow) && (underlined==1) ) xd=255;
+                if ((i==fontUnderscoreRow-1) && (underlined==2) ) xd=255;
+                if ((i==fontUnderscoreRow+1) && (underlined==2) ) xd=255;
 
-                if ((i==8 ) && (strikethrough==1) ) xd=255;
-                if ((i==7 ) && (strikethrough==2) ) xd=255;
-                if ((i==9 ) && (strikethrough==2) ) xd=255;
+                if ((i==fontStrikethroughRow ) && (strikethrough==1) ) xd=255;
+                if ((i==fontStrikethroughRow-1 ) && (strikethrough==2) ) xd=255;
+                if ((i==fontStrikethroughRow+1 ) && (strikethrough==2) ) xd=255;
 
-                if ((i==1 ) && (overscore==1) ) xd=255;
-                if ((i==0 ) && (overscore==2) ) xd=255;
-                if ((i==3 ) && (overscore==2) ) xd=255;
+                if ((i==fontOverscoreRow ) && (overscore==1) ) xd=255;
+                if ((i==fontOverscoreRow-1 ) && (overscore==2) ) xd=255;
+                if ((i==fontOverscoreRow+2 ) && (overscore==2) ) xd=255;
 
                 if (xd) {
                     putpixelbig(xpos, ypos + yposoffset + i * vPixelWidth,
