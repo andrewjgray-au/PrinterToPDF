@@ -8,12 +8,14 @@ INSTALL_PRG = $(INSTALL)
 INSTALL_DATA = $(INSTALL) -m 644
 
 UNAME := $(shell uname)
+UNAME_M := $(shell uname -m)
 
 CFLAGS = -O3 \
-         -mfloat-abi=hard \
          -funsafe-math-optimizations \
-         -mno-unaligned-access \
          $(shell sdl-config --cflags)
+ifneq (,$(findstring arm, $UNAME_M))
+CLAGS += -mfloat-abi=hard -mno-unaligned-access
+endif
 LDFLAGS = $(shell sdl-config --libs)
 LDLIBS = -lhpdf -lpng
 ifneq ($(UNAME), Darwin)

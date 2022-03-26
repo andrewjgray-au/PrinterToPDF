@@ -20,7 +20,7 @@ This fork of the project supports 12x12 fonts. The 12x12 fonts have the file ext
 This fork also supports building and running on macOS.
 
 Andrew Gray
-January 2022
+January 2022  
 
 <b>PRE-REQUISITES</b>
 You will need libpng, ImageMagick, SDL libHARU installed on Linux. 
@@ -102,6 +102,7 @@ Options:
                             unix:    Unix (LF)
                             windows: Windows (CR+LF)
                             mac:     MAC (CR)
+    -a                      Auto line feed mode - produce an automatice line feed with every CR
     -8                      Use 8 Bit characters (CANNOT be used with -i)
     -i                      Use character codes 160-255 as italics (CANNOT be used with -8)
     -q                      Quiet mode - do not output any messages

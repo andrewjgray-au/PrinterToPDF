@@ -2238,6 +2238,7 @@ void usage(const char* progname)
     puts("                         unix:    Unix (LF).");
     puts("                         windows: Windows (CR+LF)");
     puts("                         mac:     MAC (CR)");
+    puts("  -a                   Auto line feed mode.");
     puts("  -8                   Use 8 bit characters.");
     puts("  -i                   Use character codes 160-255 as italics.");
     puts("  -q                   Be quiet, don't write any messages.");
@@ -2316,7 +2317,7 @@ int main(int argc, char *argv[])
     int margin_set = 0;
 
     do {
-        opt = getopt(argc, argv, "f:d:s::o:p:m:l:8iq");
+        opt = getopt(argc, argv, "f:d:s::o:p:m:l:a8iq");
 
         switch (opt) {
             case 'f':
@@ -2528,6 +2529,10 @@ int main(int argc, char *argv[])
 
                 break;
 
+            case 'a':
+                auto_LF = 1;
+                break;
+                
             case '8':
                 if (useItalicsCharSet) {
                     fprintf(stderr, "%s: options '-8' and '-i' cannot be combined\n", argv[0]);
