@@ -2646,7 +2646,10 @@ int main(int argc, char *argv[])
     // goto raus;
     initialize(input_filename);
 
-    openfont(fontfile);
+    if (openfont(fontfile) == -1) {
+      fputs("Error loading font file\n", stderr);
+      exit(1);
+    }
 
     if (sdlon) {
         if (SDL_Init(SDL_INIT_VIDEO) != 0) {
