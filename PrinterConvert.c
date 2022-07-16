@@ -59,7 +59,7 @@ const char* version = "v1.8";
 
 int cpi = 10;                               // PICA is standard
 int pitch = 10;                             //Same as cpi but will retain its value when condensed printing is switched on
-int needles = 24;                           // number of needles - 9 pin can be important for line spacing
+int needles = 9;                           // number of needles - 9 pin can be important for line spacing
 int letterQuality = 0;                      // LQ Mode?
 int proportionalSpacing = 0;                // Proportional Mode (not implemented)
 int imageMode = 1;                          // Whether to use faster in memory conversion or file conversion
@@ -78,11 +78,12 @@ const float printerdpih = 720.0;
 const float printerdpiv = 720.0;
 float hmi = (float) 720 * ((float) 36 / (float) 360);              // pitch in inches per character.  Default is 36/360 * 720 = 10 cpi
 int line_spacing = (float) 720 * ((float) 1 / (float) 6);     // normally 1/6 inch line spacing - (float) 30*((float)pitch/(float)cpi);
+int lpi = 6;                                // Lines per inch. Used to scale fonts vertically
 int cdpih = 120;                            // fixed dots per inch used for printing characters
 int cdpiv = 144;                            // fixed dots per inch used for printing characters
-int cpih = 10;                              // Default is PICA
-int cpiv = 6;                               // Default font height in cpi (default line spacing is 1/6" inch too)
 int dpih = 180, dpiv = 180;                 // resolution in dpi for ESC/P2 printers
+int dotWidth = printerdpih / 60;  // Width of a dot in 1/720" image pixels 1/60"
+int dotHeight = printerdpiv / 72; // Height of a dot in 1/720" image pixels 1/72"
 
 // Space used for storage - printermemory holds the bitmap file generated from the captured data
 // seedrow is used for enhanced ESC/P2 printer modes where each line is based on preceding line
@@ -892,28 +893,30 @@ FILE *f;
 FILE *fp = NULL;
 
 #define FONT_CHARACTERS 256
-#define FONT_C16_ROWS 16 // Rows per character
-#define FONT_C16_BYTES 1 // Bytes per row
-#define FONT_C16_COLUMNS 8
-#define FONT_C16_UNDERSCORE_ROW 14
-#define FONT_C16_STRIKETHROUGH_ROW 8
-#define FONT_C16_OVERSCORE_ROW 1
-#define FONT_D12_ROWS 12 // Rows per character
-#define FONT_D12_BYTES 2 // Bytes per row
-#define FONT_D12_SIZE (FONT_CHARACTERS * FONT_D12_ROWS * FONT_D12_BYTES)
-#define FONT_D12_COLUMNS 12
-#define FONT_D12_UNDERSCORE_ROW 8
-#define FONT_D12_STRIKETHROUGH_ROW 3
-#define FONT_D12_OVERSCORE_ROW 1
-#define FONT_D12_SUFFIX ".D12"
+#define FONT_D9_ROWS 9 // Rows per character
+#define FONT_D9_BYTES 2 // Bytes per row
+#define FONT_D9_SIZE (FONT_CHARACTERS * FONT_D9_ROWS * FONT_D9_BYTES)
+#define FONT_D9_COLUMNS 9
+#define FONT_D9_DOUBLEDENSITY 1
+#define FONT_D9_UNDERSCORE_ROW 8
+#define FONT_D9_STRIKETHROUGH_ROW 3
+#define FONT_D9_OVERSCORE_ROW 1
+#define FONT_D9_SUBSCRIPT_ROW 4
+#define FONT_D9_SUBSCRIPT_FACTOR 0.5
+#define FONT_D9_SUPERSCRIPT_ROW 0
+#define FONT_D9_SUPERSCRIPT_FACTOR 0.5
+#define FONT_D9_SUFFIX ".D9"
 
 int fontRows;
 int fontBytes;
 int fontColumns;
+int fontDoubleDensity;
 int fontUnderscoreRow, fontStrikethroughRow, fontOverscoreRow;
+int fontSubscriptRow, fontSuperscriptRow;
+float fontSubscriptFactor, fontSuperscriptFactor;
 int fontSize;
 
-unsigned char fontx[FONT_D12_SIZE];
+unsigned char fontx[FONT_D9_SIZE];
 
 void erasesdl()
 {
@@ -1338,7 +1341,7 @@ _8pin_line_bitmap_print(int dotColumns, float hPixelWidth, float vPixelWidth,
                     if ((adjacentDot == 0) && (precedingDot(xpos, fByte) == 1)) {
                         // Miss out second of two consecutive horizontal dots
                     } else {
-                        putpixelbig(xpos, fByte, hPixelWidth, vPixelWidth);
+                        putpixelbig(xpos, fByte, dotWidth, dotHeight);
                     }
                 }
                 xd = xd << 1;
@@ -1728,7 +1731,7 @@ void bitimage_graphics(int mode, int dotColumns) {
     }
 }
 
-// Loads a font with 16bytes per char.
+// Loads a font
 // Returns 1 if ok and -1 if not OK
 int openfont(const char *filename)
 {
@@ -1739,31 +1742,46 @@ int openfont(const char *filename)
 
     if (font == NULL) {
         rc = -1;
+        fprintf(stderr, "Could not open font file: %s\n", filename);
     } else {
-      if (strlen(filename) > 4 && !strcmp(filename + strlen(filename) - 4, FONT_D12_SUFFIX)) {
-        fontColumns = FONT_D12_COLUMNS;
-        fontRows = FONT_D12_ROWS;
-        fontBytes = FONT_D12_BYTES;
-        fontUnderscoreRow = FONT_D12_UNDERSCORE_ROW;
-        fontStrikethroughRow = FONT_D12_STRIKETHROUGH_ROW;
-        fontOverscoreRow = FONT_D12_OVERSCORE_ROW;
-      } else {
-        fontColumns = FONT_C16_COLUMNS;
-        fontRows = FONT_C16_ROWS;
-        fontBytes = FONT_C16_BYTES;  
-        fontUnderscoreRow = FONT_C16_UNDERSCORE_ROW;
-        fontStrikethroughRow = FONT_C16_STRIKETHROUGH_ROW;
-        fontOverscoreRow = FONT_C16_OVERSCORE_ROW;                    
-      }
+      fontColumns = FONT_D9_COLUMNS;
+      fontRows = FONT_D9_ROWS;
+      fontBytes = FONT_D9_BYTES;  
+      fontUnderscoreRow = FONT_D9_UNDERSCORE_ROW;
+      fontStrikethroughRow = FONT_D9_STRIKETHROUGH_ROW;
+      fontOverscoreRow = FONT_D9_OVERSCORE_ROW;
+      fontSubscriptRow = FONT_D9_SUBSCRIPT_ROW;
+      fontSubscriptFactor = FONT_D9_SUBSCRIPT_FACTOR;
+      fontSuperscriptRow = FONT_D9_SUPERSCRIPT_ROW;
+      fontSuperscriptFactor = FONT_D9_SUPERSCRIPT_FACTOR;    
       fontSize = fontRows * fontBytes * FONT_CHARACTERS;
         if (fread(fontx, 1, fontSize, font) != fontSize) {
             rc = -1;
+            fprintf(stderr, "Font file did not have %d bytes\n", fontSize);
         }
 
         fclose(font);
     }
 
     return rc;
+}
+
+int row_is_solid(int row)
+{
+  if ((underlined>0) || (strikethrough>0) || (overscore>0)) {
+      if ((row==fontUnderscoreRow) && ((underlined==1) || (underlined==3)) ) return 1;
+      if ((row==fontUnderscoreRow-1) && ((underlined==2) || (underlined==4)) ) return 1;
+      if ((row==fontUnderscoreRow+1) && ((underlined==2) || (underlined==4)) ) return 1;
+
+      if ((row==fontStrikethroughRow ) && ((strikethrough==1) || (strikethrough==3)) ) return 1;
+      if ((row==fontStrikethroughRow-1 ) && ((strikethrough==2) || (strikethrough==4)) ) return 1;
+      if ((row==fontStrikethroughRow+1 ) && ((strikethrough==2) || (strikethrough==4)) ) return 1;
+
+      if ((row==fontOverscoreRow ) && ((overscore==1) || (overscore==3)) ) return 1;
+      if ((row==fontOverscoreRow-1 ) && ((overscore==2) || (overscore==4)) ) return 1;
+      if ((row==fontOverscoreRow+2 ) && ((overscore==2) || (overscore==4)) ) return 1;
+  }
+  return 0;
 }
 
 int direction_of_char = 1;
@@ -1779,7 +1797,7 @@ int printcharx(unsigned char chr)
     float divisor=1;
     int yposoffset=0;
     int charHeight = 24; // 24 pin printer - characters 24 pixels high
-    int fontDotWidth, fontDotHeight, character_spacing;
+    int character_spacing;
 
     chr2 = (unsigned int) chr;
     if (!use8bitchars && useItalicsCharSet && chr2 >= 160) {
@@ -1790,24 +1808,22 @@ int printcharx(unsigned char chr)
     }
     adressOfChar = chr2 * fontRows * fontBytes;  // Multiply with rows per character and
                                                  // bytes per row to get address
-    hPixelWidth = printerdpih / (float) cdpih;
-    vPixelWidth = printerdpiv / (float) cdpiv;
     character_spacing = 0;
 
-    // Take into account the expected size of the font for a 24 pin printer:
-    // Font size is 8 x 16:
-
+    // Calculate the base pixel size for a 9-pin printer at the current cpi
+    // At default 10cpi and 12pixels per character (double density to allow half width offsets,
+    // only the first 9 can be printed), pixel width is 1/60"
+    // At default 6lpi and 12pixels per line (only the top 9 can be printed),
+    // pixel height is 1/72"
+    hPixelWidth = printerdpih / ((float) cpi * (float) 12);
+    vPixelWidth = printerdpiv / ((float) lpi * (float) 12);
     if (letterQuality == 1) {
         // LETTER QUALITY 360 x 144 dpi
         // -- uses (360 / cpi) x 24 pixel font - default is 10 cpi (36 dots), 12 cpi (10 dots), 15 cpi (24 dots)
-        fontDotWidth = (float) hPixelWidth * (((float) 360 / (float) cpi) / (float) (fontColumns * 3));
-        fontDotHeight = (float) vPixelWidth * ((float) charHeight / (float) fontRows);
         if (chrSpacing > 0) character_spacing = printerdpih * ((float) chrSpacing / (float) 180);
     } else {
         // DRAFT QUALITY 120 x 144 dpi
         // -- uses (120 / cpi) x 24 pixel font - default is 10 cpi (12 dots), 12 cpi (10 dots), 15 cpi (8 dots)
-        fontDotWidth = (float) hPixelWidth * (((float) 120 / (float) cpi) / (float) fontColumns);
-        fontDotHeight = (float) vPixelWidth * ((float) charHeight / (float) fontRows);
         if (chrSpacing > 0) character_spacing = printerdpih * ((float) chrSpacing / (float) 120);
     }
 
@@ -1842,8 +1858,9 @@ int printcharx(unsigned char chr)
             vPixelWidth=vPixelWidth*divisor;
             yposoffset=2;
         } else {
-            fontDotHeight = vPixelWidth;
-            yposoffset=2;
+          yposoffset = fontSuperscriptRow * vPixelWidth;
+          divisor = fontSuperscriptFactor;
+          vPixelWidth = vPixelWidth * divisor;
         }
     } else if (subscript==1) {
         if (multipoint_mode == 1) {
@@ -1852,13 +1869,11 @@ int printcharx(unsigned char chr)
             vPixelWidth=vPixelWidth*divisor;
             yposoffset=26;
         } else {
-            fontDotHeight = vPixelWidth;
-            yposoffset=26;
+          yposoffset = fontSubscriptRow * vPixelWidth;
+          divisor = fontSubscriptFactor;
+          vPixelWidth = vPixelWidth * divisor;
         }
     }
-
-    hPixelWidth = fontDotWidth;
-    vPixelWidth = fontDotHeight;
 
     if (double_width || double_width_single_line) {
         hPixelWidth *= 2;
@@ -1880,33 +1895,30 @@ int printcharx(unsigned char chr)
             vPixelWidth *= 4;
         }
     }
-
     if (direction_of_char == 1) {
         for (i = 0; i < fontRows; i++) {
-          for (b = 0, xd = 0; b < fontBytes; b++) {
-            xd <<= 8;
-            xd |= fontx[adressOfChar + i * fontBytes + b];
+          if (row_is_solid(i))
+          {
+            putpixelbig(xpos, ypos + i * vPixelWidth, 12 * hPixelWidth + boldoffset, dotHeight + boldoffset11);
           }
-            // TO BE UPDATED as Underlining etc covers spaces, and non-graphics characters
-            if ((underlined>0) || (strikethrough>0) || (overscore>0)) {
-                if ((i==fontUnderscoreRow) && ((underlined==1) || (underlined==3)) ) xd=~0;
-                if ((i==fontUnderscoreRow-1) && ((underlined==2) || (underlined==4)) ) xd=~0;
-                if ((i==fontUnderscoreRow+1) && ((underlined==2) || (underlined==4)) ) xd=~0;
-
-                if ((i==fontStrikethroughRow ) && ((strikethrough==1) || (strikethrough==3)) ) xd=~0;
-                if ((i==fontStrikethroughRow-1 ) && ((strikethrough==2) || (strikethrough==4)) ) xd=~0;
-                if ((i==fontStrikethroughRow+1 ) && ((strikethrough==2) || (strikethrough==4)) ) xd=~0;
-
-                if ((i==fontOverscoreRow ) && ((overscore==1) || (overscore==3)) ) xd=~0;
-                if ((i==fontOverscoreRow-1 ) && ((overscore==2) || (overscore==4)) ) xd=~0;
-                if ((i==fontOverscoreRow+2 ) && ((overscore==2) || (overscore==4)) ) xd=~0;
+          else
+          {
+            for (b = 0, xd = 0; b < fontBytes; b++) {
+              xd <<= 8;
+              xd |= fontx[adressOfChar + i * fontBytes + b];
             }
-
             for (fByte = xpos + italiccount * (fontRows-1-i); fByte < xpos + fontColumns * hPixelWidth + italiccount * (fontRows-1-i); fByte+= hPixelWidth) {
-                if (xd & (128 << ((fontBytes-1) * 8))) putpixelbig(fByte, ypos + yposoffset + i * vPixelWidth,
-                                hPixelWidth + boldoffset, vPixelWidth + boldoffset11);
+                if (xd & (128 << ((fontBytes-1) * 8)))
+                {
+                  putpixelbig(fByte, ypos + yposoffset + i * vPixelWidth,
+                                dotWidth + boldoffset, dotHeight + boldoffset11);
+                  if (double_width || double_width_single_line)
+                    putpixelbig(fByte + hPixelWidth, ypos + yposoffset + i * vPixelWidth,
+                                dotWidth + boldoffset, dotHeight + boldoffset11);   
+                }
                 xd = xd << 1;
             }
+          }
         }
     } else {
       // Reverse font direction only supported for 8x16 fonts.
@@ -1934,7 +1946,7 @@ int printcharx(unsigned char chr)
         }
     }
     // Add the actual character width
-    xpos += (hPixelWidth * fontColumns);
+    xpos += (hPixelWidth * 12);
 
     // Add any character spacing - taking account of any continuous line scoring of printing
     if (character_spacing>0) {
@@ -3709,6 +3721,12 @@ main_loop_for_printing:
                 case 'H':    // ESC H CANCEL DOUBLE STRIKE
                     // For now this is same as cancelling bold
                     bold = 0;
+                    // Also cancel superscript and subscript
+                    // Some documents seem to assume this behaviour
+                    // 'EPSON FX Series Printer User's Manual Volume 2 Reference', under 'ESCape "H"' on page 292 says
+                    // "On the MX III, this code also cancels Script Mode."
+                    superscript = 0;
+                    subscript = 0;
                     break;
                 case '-':    // ESC - SELECT UNDERLINED FONT
                     state = read_byte_from_file((char *) &nL);

@@ -1,25 +1,26 @@
 /**
  *  createfontfile.c
- *  -------------
+ *  ----------------
  *
- *  Create font file for a 12x12 font (12 dots horizontally and 12 dots
+ *  Create font file for a 9x9 font (9 dots horizontally and 9 dots
  *  vertically) from a text file describing the font.
- *  Each line in the text file describes the leftmost 10 columns of a
- *  row of the font. Each character has 9 lines describing the top
+ *  Each line in the text file describes the 9 columns of a
+ *  row of the font. Each character has 9 lines describing the
  *  9 rows of the font. 
- *  The rightmost 2 columns and the bottom 3 rows are always blank.
  *  A dash (-) represents a dot that is not printed.
  *  A hash (#) represents a dot that is printed.
  *  Blank lines are ignored. They are usually placed between each character.
  *  
- *  In the font file two bytes represent the 12 columnns of the font.
+ *  In the font file two bytes represent the 9 columnns of the font.
  *  The first byte has the leftmost 8 columns, with the most significant
  *  bit representing the leftmost column. The second byte represents the
- *  remaining four columns, with the most significant bit representing
- *  the leftmost column. The least significant four bits in the second byte
+ *  remaining column, with the most significant bit representing
+ *  the column. The least significant seven bits in the second byte
  *  are always zero.
- *  The rows of a character are in sequence, with 12 rows or 24 bytes
+ *  The rows of a character are in sequence, with 9 rows or 18 bytes
  *  for each character.
+ *
+ *  Horizontally the dots are double density. Each dot spans two columns.
  */
 
 #include <libgen.h>
@@ -28,7 +29,7 @@
 #include <string.h>
 
 
-#define FONT_EXT  ".D12"
+#define FONT_EXT  ".D9"
 
 
 static void convert(FILE* fi, FILE* fo);
@@ -89,7 +90,7 @@ convert(FILE* fi, FILE* fo)
     for (int row = 0; row < 9; row++) {
       char line[80];
       int column;
-      int nextdot;
+      int lastdot;
       int dots = 0;
       char* result;
       while ((result = fgets(line, 80, fi)) != NULL && line[0] == '\n')
@@ -104,41 +105,26 @@ convert(FILE* fi, FILE* fo)
          strlen(line), character, row, lineno);
       }
       //fprintf(stderr, "Character %d inputrow %d lineno %4d %s", character, row, lineno, line);
-      for (column = 0, nextdot = 0; column < 9; column++) {
+      for (column = 0, lastdot = 0; column < 9; column++) {
         dots <<= 1;  
         if (line[column] == '#') {
-          if (nextdot) {
+          if (lastdot) {
             fprintf(stderr, "# followed # (character %d, row %d, column %d, lineno %d)\n",
               character, row, column, lineno);
           }
           dots ^= 1;
-          nextdot = 1;
+          lastdot = 1;
         } else if (line[column] == '-') {
-          if (nextdot) {
-            dots ^= 1;
-            nextdot = 0;
-          }
+          lastdot = 0;
         } else {
           fprintf(stderr, "Character was %c, should be # or - (character %d, row %d, lineno %d)\n",
             line[column], character, row, lineno);
         }        
       }
-      /* columns 9 to 11 are not coded for */
-      for (column = 9; column < 12; column++) {
-        dots <<= 1;
-        if (nextdot) {
-          dots ^= 1;
-          nextdot = 0;
-        }
-      }
-      dots <<= 4; // pad 4 bits to take to 16 bits;
+      dots <<= 7; // pad 7 bits to take to 16 bits;
         
       fputc(dots >> 8 & 0xff, fo); // Left most dots go first
       fputc(dots & 0xff, fo);
-    }
-    for (row = 9; row < 12; row++) { // Last 6 rows are always empty
-      fputc(0, fo);
-      fputc(0, fo);
     }
   }
 }

@@ -25,7 +25,7 @@ endif
 PRG = printerToPDF
 SRC = PrinterConvert.c
 OBJ = $(SRC:%.c=%.o)
-FNT = $(wildcard font2/*.C16) $(wildcard font2/*.D12)
+FNT = $(wildcard font2/*.D9)
 
 PRGPATH = $(prefix)/bin
 DATAPATH = $(prefix)/lib/PrinterToPDF
