@@ -60,7 +60,6 @@ const char* version = "v1.8";
 int cpi = 10;                               // PICA is standard
 int pitch = 10;                             //Same as cpi but will retain its value when condensed printing is switched on
 int needles = 9;                           // number of needles - 9 pin can be important for line spacing
-int letterQuality = 0;                      // LQ Mode?
 int proportionalSpacing = 0;                // Proportional Mode (not implemented)
 int imageMode = 1;                          // Whether to use faster in memory conversion or file conversion
 int colourSupport = 6;                      // Does the ESC.2 / ESC.3 mode support 4 colour (CMYK) or 6 colour (CMYK + Light Cyan, Light Magenta) ?
@@ -135,8 +134,6 @@ int strikethrough          = 0;
 int overscore              = 0;
 int double_width           = 0;         //Double width printing
 int double_width_single_line = 0;
-int double_height          = 0;         //Double height printing
-int quad_height            = 0;         // 4 x Height Printing - Star NL-10
 int outline_printing       = 0;         //Outline printing not yet implemeneted
 int shadow_printing        = 0;         //Shadow printing not yet implemented
 
@@ -145,7 +142,6 @@ int print_uppercontrolcodes= 0;
 
 int graphics_mode          = 0;
 int microweave_printing    = 0;
-int multipoint_mode        = 0;
 int escKbitDensity         = 0;         // 60 dpi
 int escLbitDensity         = 1;         // 120 dpi
 int escYbitDensity         = 2;         // 120 dpi
@@ -1766,25 +1762,6 @@ int openfont(const char *filename)
     return rc;
 }
 
-int row_is_solid(int row)
-{
-  if ((underlined>0) || (strikethrough>0) || (overscore>0)) {
-      if ((row==fontUnderscoreRow) && ((underlined==1) || (underlined==3)) ) return 1;
-      if ((row==fontUnderscoreRow-1) && ((underlined==2) || (underlined==4)) ) return 1;
-      if ((row==fontUnderscoreRow+1) && ((underlined==2) || (underlined==4)) ) return 1;
-
-      if ((row==fontStrikethroughRow ) && ((strikethrough==1) || (strikethrough==3)) ) return 1;
-      if ((row==fontStrikethroughRow-1 ) && ((strikethrough==2) || (strikethrough==4)) ) return 1;
-      if ((row==fontStrikethroughRow+1 ) && ((strikethrough==2) || (strikethrough==4)) ) return 1;
-
-      if ((row==fontOverscoreRow ) && ((overscore==1) || (overscore==3)) ) return 1;
-      if ((row==fontOverscoreRow-1 ) && ((overscore==2) || (overscore==4)) ) return 1;
-      if ((row==fontOverscoreRow+2 ) && ((overscore==2) || (overscore==4)) ) return 1;
-  }
-  return 0;
-}
-
-int direction_of_char = 1;
 int printcharx(unsigned char chr)
 {
     unsigned int adressOfChar = 0;
@@ -1796,6 +1773,7 @@ int printcharx(unsigned char chr)
     unsigned int xd;
     float divisor=1;
     int yposoffset=0;
+    int originalVPixelWidth;
     int charHeight = 24; // 24 pin printer - characters 24 pixels high
     int character_spacing;
 
@@ -1817,15 +1795,12 @@ int printcharx(unsigned char chr)
     // pixel height is 1/72"
     hPixelWidth = printerdpih / ((float) cpi * (float) 12);
     vPixelWidth = printerdpiv / ((float) lpi * (float) 12);
-    if (letterQuality == 1) {
-        // LETTER QUALITY 360 x 144 dpi
-        // -- uses (360 / cpi) x 24 pixel font - default is 10 cpi (36 dots), 12 cpi (10 dots), 15 cpi (24 dots)
-        if (chrSpacing > 0) character_spacing = printerdpih * ((float) chrSpacing / (float) 180);
-    } else {
-        // DRAFT QUALITY 120 x 144 dpi
-        // -- uses (120 / cpi) x 24 pixel font - default is 10 cpi (12 dots), 12 cpi (10 dots), 15 cpi (8 dots)
-        if (chrSpacing > 0) character_spacing = printerdpih * ((float) chrSpacing / (float) 120);
-    }
+    originalVPixelWidth = vPixelWidth;
+
+    // DRAFT QUALITY 120 x 144 dpi
+    // -- uses (120 / cpi) x 24 pixel font - default is 10 cpi (12 dots), 12 cpi (10 dots), 15 cpi (8 dots)
+    if (chrSpacing > 0) character_spacing = printerdpih * ((float) chrSpacing / (float) 120);
+
 
     // eigentlich sollte
     // das 16 sein da
@@ -1852,99 +1827,42 @@ int printcharx(unsigned char chr)
     // Does not affect graphics characters
     // TO BE WRITTEN
     if (superscript==1) {
-        if (multipoint_mode == 1) {
-            // Use nearest to 2/3
-            divisor=2.0/3.0;
-            vPixelWidth=vPixelWidth*divisor;
-            yposoffset=2;
-        } else {
-          yposoffset = fontSuperscriptRow * vPixelWidth;
-          divisor = fontSuperscriptFactor;
-          vPixelWidth = vPixelWidth * divisor;
-        }
+        yposoffset = fontSuperscriptRow * vPixelWidth;
+        divisor = fontSuperscriptFactor;
+        vPixelWidth = vPixelWidth * divisor;
     } else if (subscript==1) {
-        if (multipoint_mode == 1) {
-            // Use nearest to 2/3
-            divisor=2.0/3.0;
-            vPixelWidth=vPixelWidth*divisor;
-            yposoffset=26;
-        } else {
-          yposoffset = fontSubscriptRow * vPixelWidth;
-          divisor = fontSubscriptFactor;
-          vPixelWidth = vPixelWidth * divisor;
-        }
+        yposoffset = fontSubscriptRow * vPixelWidth;
+        divisor = fontSubscriptFactor;
+        vPixelWidth = vPixelWidth * divisor;
     }
 
     if (double_width || double_width_single_line) {
         hPixelWidth *= 2;
         character_spacing *= 2;
     }
-    if (double_height == 1) {
-        // If ESC w sent on first line of page does NOT affect the first line
-        // Move ypos back up page to allow base line of character to remain the same
-        if ((chr!=32) && (ypos >= charHeight * vPixelWidth)) {
-            yposoffset -= charHeight * vPixelWidth; // Height of one character at double height = 2 x 24
-            vPixelWidth *= 2;
-        }
-    }
-    if (quad_height == 1) {
-        // Star NL-10 ENLARGE command - does NOT affect the first line
-        // Move ypos back up page to allow base line of character to remain the same
-        if ((chr!=32) && (ypos >= charHeight * 3 * vPixelWidth)) {
-            yposoffset -= charHeight * 3 * vPixelWidth; // Height of one character at quad height = 4 x 24
-            vPixelWidth *= 4;
-        }
-    }
-    if (direction_of_char == 1) {
-        for (i = 0; i < fontRows; i++) {
-          if (row_is_solid(i))
+    for (i = 0; i < fontRows; i++) {
+      for (b = 0, xd = 0; b < fontBytes; b++) {
+        xd <<= 8;
+        xd |= fontx[adressOfChar + i * fontBytes + b];
+      }
+      for (fByte = xpos + italiccount * (fontRows-1-i); fByte < xpos + fontColumns * hPixelWidth + italiccount * (fontRows-1-i); fByte+= hPixelWidth) {
+          if (xd & (128 << ((fontBytes-1) * 8)))
           {
-            putpixelbig(xpos, ypos + i * vPixelWidth, 12 * hPixelWidth + boldoffset, dotHeight + boldoffset11);
+            putpixelbig(fByte, ypos + yposoffset + i * vPixelWidth,
+                          dotWidth + boldoffset, dotHeight + boldoffset11);
+            if (double_width || double_width_single_line)
+              putpixelbig(fByte + hPixelWidth, ypos + yposoffset + i * vPixelWidth,
+                          dotWidth + boldoffset, dotHeight + boldoffset11);   
           }
-          else
-          {
-            for (b = 0, xd = 0; b < fontBytes; b++) {
-              xd <<= 8;
-              xd |= fontx[adressOfChar + i * fontBytes + b];
-            }
-            for (fByte = xpos + italiccount * (fontRows-1-i); fByte < xpos + fontColumns * hPixelWidth + italiccount * (fontRows-1-i); fByte+= hPixelWidth) {
-                if (xd & (128 << ((fontBytes-1) * 8)))
-                {
-                  putpixelbig(fByte, ypos + yposoffset + i * vPixelWidth,
-                                dotWidth + boldoffset, dotHeight + boldoffset11);
-                  if (double_width || double_width_single_line)
-                    putpixelbig(fByte + hPixelWidth, ypos + yposoffset + i * vPixelWidth,
-                                dotWidth + boldoffset, dotHeight + boldoffset11);   
-                }
-                xd = xd << 1;
-            }
-          }
-        }
-    } else {
-      // Reverse font direction only supported for 8x16 fonts.
-        for (i = 0; i <= 15; i++) {
-            xd = fontx[adressOfChar + i];
-            // TO BE UPDATED as Underlining etc covers spaces, and non-graphics characters
-            if ((underlined>0) || (strikethrough>0) || (overscore>0)) {
-                if ((i==fontUnderscoreRow) && ((underlined==1) || (underlined==3)) ) xd=255;
-                if ((i==fontUnderscoreRow-1) && ((underlined==2) || (underlined==4)) ) xd=255;
-                if ((i==fontUnderscoreRow+1) && ((underlined==2) || (underlined==4)) ) xd=255;
-
-                if ((i==fontStrikethroughRow ) && ((strikethrough==1) || (strikethrough==3)) ) xd=255;
-                if ((i==fontStrikethroughRow-1 ) && ((strikethrough==2) || (strikethrough==4)) ) xd=255;
-                if ((i==fontStrikethroughRow+1 ) && ((strikethrough==2) || (strikethrough==4)) ) xd=255;
-
-                if ((i==fontOverscoreRow ) && ((overscore==1) || (overscore==3)) ) xd=255;
-                if ((i==fontOverscoreRow-1 ) && ((overscore==2) || (overscore==4)) ) xd=255;
-                if ((i==fontOverscoreRow+2 ) && ((overscore==2) || (overscore==4)) ) xd=255;
-            }
-            for (fByte = xpos + italiccount * (7-i); fByte < xpos + 8 * hPixelWidth + italiccount * (7-i); fByte+= hPixelWidth) {
-                if (xd & 001) putpixelbig(fByte,ypos + yposoffset+ i * vPixelWidth,
-                                hPixelWidth + boldoffset, vPixelWidth + boldoffset11);
-                xd = xd >> 1;
-            }
-        }
+          xd = xd << 1;
+      }
     }
+    if (underlined == 1)
+    {
+      putpixelbig(xpos, ypos + fontUnderscoreRow * originalVPixelWidth,
+                  12 * hPixelWidth + boldoffset, dotHeight + boldoffset11);
+    }
+
     // Add the actual character width
     xpos += (hPixelWidth * 12);
 
@@ -2000,19 +1918,13 @@ int print_space(int showUnderline)
         boldoffset11=boldoffset;
         //printf("%d\n", boldoffset);
     }
-    if (letterQuality == 1) {
-        // LETTER QUALITY 360 x 144 dpi
-        // -- uses (360 / cpi) x 24 pixel font - default is 10 cpi (36 dots), 12 cpi (10 dots), 15 cpi (24 dots)
-        fontDotWidth = (float) hPixelWidth * (((float) 360 / (float) cpi) / (float) 24);
-        fontDotHeight = (float) vPixelWidth * (float) charHeight / (float) 16;
-        if (chrSpacing > 0) character_spacing = printerdpih * ((float) chrSpacing / (float) 180);
-    } else {
-        // DRAFT QUALITY 120 x 144 dpi
-        // -- uses (120 / cpi) x 24 pixel font - default is 10 cpi (12 dots), 12 cpi (10 dots), 15 cpi (8 dots)
-        fontDotWidth = (float) hPixelWidth * (((float) 120 / (float) cpi) / (float) 8);
-        fontDotHeight = (float) vPixelWidth * (float) charHeight / (float) 16;
-        if (chrSpacing > 0) character_spacing = printerdpih * ((float) chrSpacing / (float) 180);
-    }
+
+    // DRAFT QUALITY 120 x 144 dpi
+    // -- uses (120 / cpi) x 24 pixel font - default is 10 cpi (12 dots), 12 cpi (10 dots), 15 cpi (8 dots)
+    fontDotWidth = (float) hPixelWidth * (((float) 120 / (float) cpi) / (float) 8);
+    fontDotHeight = (float) vPixelWidth * (float) charHeight / (float) 16;
+    if (chrSpacing > 0) character_spacing = printerdpih * ((float) chrSpacing / (float) 180);
+
 
     test_for_new_paper();
 
@@ -2351,23 +2263,11 @@ int main(int argc, char *argv[])
     int margin_set = 0;
 
     do {
-        opt = getopt(argc, argv, "f:d:s::o:p:m:l:a8iq");
+        opt = getopt(argc, argv, "f:s::o:p:m:l:a8iq");
 
         switch (opt) {
             case 'f':
                 fontfile = optarg;
-                break;
-
-            case 'd':
-                if (strcasecmp(optarg, "left") == 0) {
-                    direction_of_char = 0;
-                } else if (strcasecmp(optarg, "right") == 0) {
-                    direction_of_char = 1;
-                } else {
-                    fprintf(stderr, "%s: invalid font direction: '%s'\n", argv[0], optarg);
-                    return 2;
-                }
-
                 break;
 
             case 's':
@@ -2767,13 +2667,11 @@ main_loop_for_printing:
                 case '@':    // ESC @ Initialize
                     cpi                    =  10;
                     pitch                  =  10;
-                    multipoint_mode        =   0;
                     hmi                    = printerdpih * ((float) 36 / (float) 360); // Reset HMI
                     line_spacing           = printerdpiv * ((float) 1 / (float) 6); // normally 1/6 inch line spacing
                     chrSpacing             =   0;
                     dpih                   = 240;
                     dpiv                   = 216;
-                    letterQuality          =   0;
                     proportionalSpacing    =   0;
                     printColour            =   0;
                     bold                   =   0;
@@ -2785,8 +2683,6 @@ main_loop_for_printing:
                     overscore              =   0;
                     double_width           =   0;
                     double_width_single_line = 0;
-                    double_height          =   0;
-                    quad_height            =   0;
                     outline_printing       =   0;
                     shadow_printing        =   0;
                     print_controlcodes     =   0;
@@ -3107,11 +3003,7 @@ main_loop_for_printing:
                     if (state == 0) break;
                     thisDefaultUnit = defaultUnit;
                     if (defaultUnit == 0) {
-                        if (letterQuality == 1) {
-                            thisDefaultUnit = printerdpih / (float) 180; // Default for command is 1/180 inch units in LQ mode
-                        } else {
-                            thisDefaultUnit = printerdpih / (float) 120; // Default for command is 1/120 inch units in draft mode
-                        }
+                      thisDefaultUnit = printerdpih / (float) 120; // Default for command is 
                     }
                     if (nH > 127) {
                         // Handle negative movement
@@ -3170,11 +3062,7 @@ main_loop_for_printing:
             case 136:
                 xposold = xpos;
                 hPixelWidth = printerdpih / (float) cdpih;
-                if (letterQuality == 1) {
-                    hPixelWidth = (float) hPixelWidth * (((float) 360 / (float) cpi) / (float) 24);
-                } else {
-                    hPixelWidth = (float) hPixelWidth * (((float) 120 / (float) cpi) / (float) 8);
-                }
+                hPixelWidth = (float) hPixelWidth * (((float) 120 / (float) cpi) / (float) 8);
                 xpos -= hPixelWidth * 8;
                 if (xpos < 0) xpos = xposold;
                 break;
@@ -3266,16 +3154,14 @@ main_loop_for_printing:
             case 14:    // SO Shift Out (do nothing) Select double Width printing (for one line)
             case 142:
                 hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
-                if (multipoint_mode == 0) double_width_single_line = 1;
+                double_width_single_line = 1;
                 break;
             case 15:    // SI Shift In (do nothing) Condensed printing on
             case 143:
                 hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
-                if (multipoint_mode == 0) {
-                    if (pitch==10) cpi=17.14;
-                    if (pitch==12) cpi=20;
-                    // Add for proportional font = 1/2 width - to be written
-                }
+                if (pitch==10) cpi=17.14;
+                if (pitch==12) cpi=20;
+                // Add for proportional font = 1/2 width - to be written
                 break;
             case 16:    // DLE Data Link Escape (do nothing)
             case 144:
@@ -3348,13 +3234,8 @@ main_loop_for_printing:
                 hPixelWidth = printerdpih / (float) cdpih;
                 vPixelWidth = printerdpiv / (float) cdpiv;
                 int charHeight = 24;
-                if (letterQuality == 1) {
-                    hPixelWidth = (float) hPixelWidth * (((float) 360 / (float) cpi) / (float) 24);
-                    vPixelWidth = (float) vPixelWidth * ((float) charHeight / (float) 16);
-                } else {
-                    hPixelWidth = (float) hPixelWidth * (((float) 120 / (float) cpi) / (float) 8);
-                    vPixelWidth = (float) vPixelWidth * ((float) charHeight / (float) 16);
-                }
+                hPixelWidth = (float) hPixelWidth * (((float) 120 / (float) cpi) / (float) 8);
+                vPixelWidth = (float) vPixelWidth * ((float) charHeight / (float) 16);
                 xpos += hPixelWidth * 8;
                 if (xpos > ((pageSetWidth - 1) - vPixelWidth * 16)) {
                     xpos = marginleftp;
@@ -3374,14 +3255,12 @@ main_loop_for_printing:
                 case '@':    // ESC @ Initialize
                     cpi                    =  10;
                     pitch                  =  10;
-                    multipoint_mode        =   0;
                     graphics_mode          =   0;
                     hmi                    = printerdpih * ((float) 36 / (float) 360); // Reset HMI
                     line_spacing           = printerdpiv * ((float) 1 / (float) 6); // normally 1/6 inch line spacing
                     chrSpacing             =   0;
                     dpih                   = 240;
                     dpiv                   = 216;
-                    letterQuality          =   0;
                     proportionalSpacing    =   0;
                     printColour            =   0;
                     bold                   =   0;
@@ -3393,8 +3272,6 @@ main_loop_for_printing:
                     overscore              =   0;
                     double_width           =   0;
                     double_width_single_line = 0;
-                    double_height          =   0;
-                    quad_height            =   0;
                     outline_printing       =   0;
                     shadow_printing        =   0;
                     print_controlcodes     =   0;
@@ -3442,21 +3319,18 @@ main_loop_for_printing:
                     break;
                 case 'M':    // ESC M Select 10.5-point, 12-cpi
                     // Note - if printer in proportional mode, only takes effect when exits proportional mode
-                    multipoint_mode = 0;
                     hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
                     cpi = 12;
                     pitch=12;
                     break;
                 case 'P':     // ESC P Set 10.5-point, 10-cpi
                     // Note - if printer in proportional mode, only takes effect when exits proportional mode
-                    multipoint_mode = 0;
                     hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
                     cpi = 10;
                     pitch=10;
                     break;
                 case 'g':    // ESC g Select 10.5-point, 15-cpi
                     // Note - if printer in proportional mode, only takes effect when exits proportional mode
-                    multipoint_mode = 0;
                     hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
                     cpi = 15;
                     pitch=15;
@@ -3681,29 +3555,14 @@ main_loop_for_printing:
                     subscript = 0;
                     superscript=0;
                     break;
-                case 'x':    // Select LQ or draft ESC x n
-                    // n can be 0 or 48 for draft
-                    // and 1 or 49 for letter quality
-                    // NB cancels double strike printing whilst in LQ mode (turned back on after cancel LQ Mode)
-                    // Not currently implemented
-                    state = read_byte_from_file((char *) &nL);
-                    if ((nL==1) || (nL==49)) {
-                        letterQuality = 1;
-                    } else if ((nL== 0) || (nL==48)) {
-                        letterQuality = 0;
-                    }
-                    break;
                 case 'p':    // ESC p n Turn proportional mode on/off off--> n=0
                     // or 48 on --> n=1 or 49
                     // not implemented yet
-                    multipoint_mode = 0;
                     hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
                     state = read_byte_from_file((char *) &nL);
                     if ((nL==1) || (nL==49)) {
-                        letterQuality = 1;
                         proportionalSpacing = 1;
                     } else if ((nL== 0) || (nL==48)) {
-                        letterQuality = 0;
                         proportionalSpacing = 0;
                         // update pitch if necessary according to ESC M, ESC g or ESC P
                     }
@@ -3736,42 +3595,10 @@ main_loop_for_printing:
                 case 'W':    // ESC W SELECT DOUBLE WIDTH
                     state = read_byte_from_file((char *) &nL);
                     hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
-                    if (multipoint_mode == 0) {
-                        if ((nL==1) || (nL==49)) double_width=1;
-                        if ((nL==0) || (nL==48)) {
-                            double_width=0;
-                            double_width_single_line = 0;
-                        }
-                    }
-                    break;
-                case 'w':    // ESC w SELECT DOUBLE HEIGHT
-                    state = read_byte_from_file((char *) &nL);
-                    hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
-                    if (multipoint_mode == 0) {
-                        if ((nL==1) || (nL==49)) {
-                            double_height=1;
-                            quad_height=0;
-                        }
-                        if ((nL==0) || (nL==48)) double_height=0;
-                    }
-                    break;
-                case 'h':    // ESC h ENLARGE - STAR NL-10 implementation
-                    state = read_byte_from_file((char *) &nL);
-                    if (multipoint_mode == 0) {
-                        switch (nL) {
-                        case 0:
-                            double_height=0;
-                            quad_height=0;
-                            break;
-                        case 1:
-                            double_height=1;
-                            quad_height=0;
-                            break;
-                        case 2:
-                            double_height=0;
-                            quad_height=1;
-                            break;
-                        }
+                    if ((nL==1) || (nL==49)) double_width=1;
+                    if ((nL==0) || (nL==48)) {
+                        double_width=0;
+                        double_width_single_line = 0;
                     }
                     break;
                 case '4':    // ESC 4 SELECT ITALIC FONT
@@ -3781,7 +3608,6 @@ main_loop_for_printing:
                     italic = 0;
                     break;
                 case '!':    // ESC ! n Master Font Select
-                    multipoint_mode = 0;
                     hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
                     state = read_byte_from_file((char *) &nL);
                     if ( isNthBitSet(nL, 0) ) {
@@ -4322,26 +4148,6 @@ main_loop_for_printing:
                     state = read_byte_from_file((char *) &nH);
                     hmi = printerdpih * ((float) (nH *256) + (float) nL / (float) 360);
                     break;
-                case 'X':
-                    // ESC X m nL nH Select font by pitch & point
-                    // not implemented yet
-                    multipoint_mode = 1;
-                    hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
-                    state = read_byte_from_file((char *) &m);
-                    state = read_byte_from_file((char *) &nL);
-                    state = read_byte_from_file((char *) &nH);
-                    if (m == 0) {
-                        // No change in pitch
-                    } else if (m==1) {
-                        // Proportional spacing - not yet implemented
-                    } else if (m >5) {
-                        cpi = (float) 360 / (float) m;
-                    }
-                    if ((nH > 0) || (nL > 0)) {
-                        // Set point size - 1 pt = 1/72 inch - not yet implemented
-                        // pointSize = ((nH * 256) + nL) / 2
-                    }
-                    break;
                 case 'U':    // Turn unidirectional mode on/off ESC U n n = 0 or
                     // 48 Bidirectional 1 or 49 unidirectional
                     // not required
@@ -4417,11 +4223,7 @@ main_loop_for_printing:
                     if (state == 0) break;
                     thisDefaultUnit = defaultUnit;
                     if (defaultUnit == 0) {
-                        if (letterQuality == 1) {
-                            thisDefaultUnit = printerdpih / (float) 180; // Default for command is 1/180 inch units in LQ mode
-                        } else {
-                            thisDefaultUnit = printerdpih / (float) 120; // Default for command is 1/120 inch units in draft mode
-                        }
+                      thisDefaultUnit = printerdpih / (float) 120; // Default for command is 
                     }
                     if (nH > 127) {
                         // Handle negative movement
@@ -4477,9 +4279,7 @@ main_loop_for_printing:
                 case 20:    // ESC SP Set intercharacter space
                     state = read_byte_from_file((char *) &nL);
                     hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
-                    if (multipoint_mode == 0) {
-                        chrSpacing = nL;
-                    }
+                    chrSpacing = nL;
                     break;
                 case 25:    // ESC EM n Control paper loading / ejecting (do nothing)
                     state = read_byte_from_file((char *) &nL);
@@ -4499,14 +4299,12 @@ main_loop_for_printing:
                     bitimage_graphics(m, dotColumns);
                     break;
                 case 14:    // ESC SO Shift Out Select double Width printing (for one line)
-                    if (multipoint_mode == 0) double_width_single_line = 1;
+                    double_width_single_line = 1;
                     break;
                 case 15:    // ESC SI Shift In Condensed printing on
-                    if (multipoint_mode == 0) {
-                        if (pitch==10) cpi=17.14;
-                        if (pitch==12) cpi=20;
-                        // Add for proportional font = 1/2 width - to be written
-                    }
+                    if (pitch==10) cpi=17.14;
+                    if (pitch==12) cpi=20;
+                    // Add for proportional font = 1/2 width - to be written
                     break;
                 } // end of switch
             }   // End of ESC branch

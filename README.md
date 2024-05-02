@@ -73,7 +73,6 @@ Mandatory Options are:
     -f FONT                 Name of font file to use (eg font2/Epson-Standard.C16)
     
 Options:    
-    -d                      Set font direction right or left.  Default is -d right
     -s [NUM]                Display printout in sdl window.  The optional numeric argument reduces sdl display to that percentage of original size
     -p NUM                  Select predefined page size:
                             0: A4 portrait (210 x 297 mm) (default)
