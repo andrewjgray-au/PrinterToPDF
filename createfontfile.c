@@ -2,20 +2,20 @@
  *  createfontfile.c
  *  ----------------
  *
- *  Create font file for a 9x9 font (9 dots horizontally and 9 dots
+ *  Create font file for a 13x9 font (13 dots horizontally and 9 dots
  *  vertically) from a text file describing the font.
- *  Each line in the text file describes the 9 columns of a
+ *  Each line in the text file describes the 13 columns of a
  *  row of the font. Each character has 9 lines describing the
  *  9 rows of the font. 
  *  A dash (-) represents a dot that is not printed.
  *  A hash (#) represents a dot that is printed.
  *  Blank lines are ignored. They are usually placed between each character.
  *  
- *  In the font file two bytes represent the 9 columnns of the font.
+ *  In the font file two bytes represent the 13 columnns of the font.
  *  The first byte has the leftmost 8 columns, with the most significant
  *  bit representing the leftmost column. The second byte represents the
- *  remaining column, with the most significant bit representing
- *  the column. The least significant seven bits in the second byte
+ *  remaining 5 columns, with the most significant bit representing
+ *  the 9th column. The least significant three bits in the second byte
  *  are always zero.
  *  The rows of a character are in sequence, with 9 rows or 18 bytes
  *  for each character.
@@ -100,12 +100,12 @@ convert(FILE* fi, FILE* fo)
         fprintf(stderr, "Unexpected end of file (character %d, row %d, lineno %d)\n", character, row, lineno);
         exit(1);
       }
-      if (strlen(line) != 10) {
-        fprintf(stderr, "Line was %ld characters, should be 9 characters (character %d, row %d), lineno %d\n",
-         strlen(line), character, row, lineno);
+      if (strlen(line) != 14) {
+        fprintf(stderr, "Line was %ld characters, should be 13 characters (character %d, row %d), lineno %d\n",
+         strlen(line) - 1, character, row, lineno);
       }
       //fprintf(stderr, "Character %d inputrow %d lineno %4d %s", character, row, lineno, line);
-      for (column = 0, lastdot = 0; column < 9; column++) {
+      for (column = 0, lastdot = 0; column < 13; column++) {
         dots <<= 1;  
         if (line[column] == '#') {
           if (lastdot) {
@@ -121,7 +121,7 @@ convert(FILE* fi, FILE* fo)
             line[column], character, row, lineno);
         }        
       }
-      dots <<= 7; // pad 7 bits to take to 16 bits;
+      dots <<= 3; // pad 3 bits to take to 16 bits;
         
       fputc(dots >> 8 & 0xff, fo); // Left most dots go first
       fputc(dots & 0xff, fo);

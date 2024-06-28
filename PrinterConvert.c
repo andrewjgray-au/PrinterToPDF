@@ -11,6 +11,7 @@
 #include <hpdf.h>
 #include <SDL/SDL.h>
 #include "dir.c"
+#include <math.h>
 
 const char* version = "v1.8";
 
@@ -57,7 +58,7 @@ const char* version = "v1.8";
 #define LINEFEED_CONFIG     "/root/config/linefeed_ending"          // Unix, Windows or Mac line feeds in conversion
 #define PATH_CONFIG         "/root/config/output_path"              // default path for output files
 
-int cpi = 10;                               // PICA is standard
+float cpi = 10;                               // PICA is standard
 int pitch = 10;                             //Same as cpi but will retain its value when condensed printing is switched on
 int needles = 9;                           // number of needles - 9 pin can be important for line spacing
 int proportionalSpacing = 0;                // Proportional Mode (not implemented)
@@ -73,16 +74,26 @@ int quiet_mode = 0;
 
 int pageSetWidth;
 int pageSetHeight;
-const float printerdpih = 720.0;
-const float printerdpiv = 720.0;
-float hmi = (float) 720 * ((float) 36 / (float) 360);              // pitch in inches per character.  Default is 36/360 * 720 = 10 cpi
-int line_spacing = (float) 720 * ((float) 1 / (float) 6);     // normally 1/6 inch line spacing - (float) 30*((float)pitch/(float)cpi);
+int imagePageSetWidth;
+int imagePageSetHeight;
+const float imagedpih = 1440.0; // Cannot use an image with 11360dpi, it will be too big
+const float imagedpiv = 1440.0;
+const float printerdpih = 11360.0; // Normal characters are 16 pixels in 1/10 inch, giving 160ppi
+                                   // Condensed chararaters are 16 pixels in 1/10 inch * 80/142 = 4/71 inch
+                                   // giving 284ppi. LCM of 160 and 284 is 11360, so use 11360ppi
+                                   // for horizontal position. 
+const float printerdpiv = 2160.0; // Dots are 1/80 inch vertically. Line spacing is in 1/216 inch
+                                  // increments. LCM of 80 and 216 is 2160, so use 2160ppi
+                                  // for vertical position.
+int line_spacing = printerdpiv * ((float) 1 / (float) 6);     // normally 1/6 inch line spacing - (float) 30*((float)pitch/(float)cpi);
 int lpi = 6;                                // Lines per inch. Used to scale fonts vertically
-int cdpih = 120;                            // fixed dots per inch used for printing characters
-int cdpiv = 144;                            // fixed dots per inch used for printing characters
+int cdpih = 160;                            // fixed dots per inch used for printing characters
+int cdpiv = 216;                            // fixed dots per inch used for printing characters
 int dpih = 180, dpiv = 180;                 // resolution in dpi for ESC/P2 printers
-int dotWidth = printerdpih / 60;  // Width of a dot in 1/720" image pixels 1/60"
-int dotHeight = printerdpiv / 72; // Height of a dot in 1/720" image pixels 1/72"
+int dotWidth = printerdpih/ 80;  // Width of a dot in 1/11360" image pixels 1/80"
+int dotHeight = printerdpiv / 80; // Height of a dot in 1/2160" image pixels 1/80"
+int dpch = 16;                    // Dots per charatcer horizontal: 160 dpi / 10 cpi = 16 dpc
+
 
 // Space used for storage - printermemory holds the bitmap file generated from the captured data
 // seedrow is used for enhanced ESC/P2 printer modes where each line is based on preceding line
@@ -142,7 +153,7 @@ int print_uppercontrolcodes= 0;
 
 int graphics_mode          = 0;
 int microweave_printing    = 0;
-int escKbitDensity         = 0;         // 60 dpi
+int escKbitDensity         = 0;         // 80 dpi
 int escLbitDensity         = 1;         // 120 dpi
 int escYbitDensity         = 2;         // 120 dpi
 int escZbitDensity         = 3;         // 240 dpi
@@ -446,7 +457,7 @@ void setupColourTable()
 void erasepage()
 {
     //clear memory
-    memset(printermemory, WHITE , pageSetWidth * pageSetHeight);
+    memset(printermemory, WHITE , imagePageSetWidth * imagePageSetHeight);
 }
 
 void initialize(const char* input_filename)
@@ -460,7 +471,7 @@ void initialize(const char* input_filename)
     marginbottomp = defaultMarginBottomp;
 
     // Set aside enough memory to store the parsed image
-    printermemory = malloc ((pageSetWidth+1) * pageSetHeight);
+    printermemory = malloc ((imagePageSetWidth+1) * imagePageSetHeight);
     if (printermemory == NULL) {
         fputs("Can't allocate memory for Printer Conversion.\n", stderr);
         exit (1);
@@ -468,7 +479,7 @@ void initialize(const char* input_filename)
     // For Delta Row compression - set aside room to store 4 seed rows (1 per supported colour)
     if (imageMode == 1 ) {
         // Faster method of creating and converting PNG image - stores it in memory, so needs a lot more memory
-        imagememory = calloc (3 * (pageSetWidth+1) * pageSetHeight, 1);
+        imagememory = calloc (3 * (imagePageSetWidth+1) * imagePageSetHeight, 1);
         if (imagememory == NULL) {
             free(printermemory);
             printermemory=NULL;
@@ -480,7 +491,7 @@ void initialize(const char* input_filename)
         seedrow = imagememory;
     } else {
         // Slower method - PNG image is saved to disk first and then converted from there
-        seedrow = calloc ((pageSetWidth+1) * colourSupport, 1);
+        seedrow = calloc ((imagePageSetWidth+1) * colourSupport, 1);
         if (seedrow == NULL) {
             free(printermemory);
             printermemory=NULL;
@@ -612,7 +623,7 @@ int write_png(const char *filename, int width, int height, char *rgb)
                     8, PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE,
                     PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
         // Set the resolution of the image to 720dpi
-        png_set_pHYs(png_ptr, info_ptr, printerdpih/0.0254, printerdpiv/0.0254,
+        png_set_pHYs(png_ptr, info_ptr, imagedpih/0.0254, imagedpiv/0.0254,
             PNG_RESOLUTION_METER);
 
         png_write_info(png_ptr, info_ptr);
@@ -662,7 +673,7 @@ void pdf_error_handler (HPDF_STATUS error_no, HPDF_STATUS detail_no, void *user_
 
 HPDF_REAL ScaleDPI(HPDF_REAL size)
 {
-    return (float) size * (72.0F / (float) printerdpih);
+    return (float) size * (72.0F / (float) imagedpih);
 }
 
 int write_pdf (const char *filename, const char *pdfname, int width, int height)
@@ -733,7 +744,7 @@ int write_pdf (const char *filename, const char *pdfname, int width, int height)
 void putpx(int x, int y)
 {
     // Write printer colour to specific pixel on the created bitmap
-    int pos = y * pageSetWidth + x;
+    int pos = y * imagePageSetWidth + x;
     unsigned char existingPixel = printermemory[pos];
 
     // If existing pixel is white, then we need to reset it to 0 before OR'ing the chosen colour
@@ -752,8 +763,8 @@ static float divi = 1.0;  // divider for lower resolution
 void putpixel(SDL_Surface * surface, int x, int y, Uint32 pixel)
 {
     // if we are out of scope don't putpixel, otherwise we'll get a segmentation fault
-    if (x > (pageSetWidth - 1)) return;
-    if (y > (pageSetHeight - 1)) return;
+    if (x > (imagePageSetWidth - 1)) return;
+    if (y > (imagePageSetHeight - 1)) return;
     putpx(x, y);    // Plot to bitmap for PDF
     if (sdlon == 0) return;
 
@@ -849,10 +860,15 @@ void putpixel(SDL_Surface * surface, int x, int y, Uint32 pixel)
 
 void putpixelbig(int xpos, int ypos, int hwidth, int vdith)
 {
+    int ixpos = xpos * (imagedpih / printerdpih);
+    int iypos = ypos * (imagedpiv / printerdpiv);
+    int ihwidth = hwidth * (imagedpih / printerdpih);
+    int ivdith = vdith * (imagedpiv / printerdpiv);
+
     int a, b;
-    for (a = 0; a < hwidth; a++) {
-        for (b = 0; b < vdith; b++) {
-            putpixel(display, xpos + a, ypos + b, 0x00000000);
+    for (a = 0; a < ihwidth; a++) {
+        for (b = 0; b < ivdith; b++) {
+            putpixel(display, ixpos + a, iypos + b, 0x00000000);
         }
     }
 }
@@ -892,7 +908,7 @@ FILE *fp = NULL;
 #define FONT_D9_ROWS 9 // Rows per character
 #define FONT_D9_BYTES 2 // Bytes per row
 #define FONT_D9_SIZE (FONT_CHARACTERS * FONT_D9_ROWS * FONT_D9_BYTES)
-#define FONT_D9_COLUMNS 9
+#define FONT_D9_COLUMNS 13
 #define FONT_D9_DOUBLEDENSITY 1
 #define FONT_D9_UNDERSCORE_ROW 8
 #define FONT_D9_STRIKETHROUGH_ROW 3
@@ -919,8 +935,8 @@ void erasesdl()
     int i, t;
     if (sdlon == 0) return;
     // pageSetWidth*pageSetHeight
-    for (i = 0; i < pageSetWidth; i++) {
-        for (t = 0; t < pageSetHeight; t++) {
+    for (i = 0; i < imagePageSetWidth; i++) {
+        for (t = 0; t < imagePageSetHeight; t++) {
             putpixel(display, i, t, 0x00FFFFFF);
         }
     }
@@ -933,10 +949,10 @@ int test_for_new_paper()
         xpos = marginleftp;
         ypos = margintopp;
         sprintf(filenameX, "%spage%d.png", pathpng, page);
-        if (write_png(filenameX, pageSetWidth, pageSetHeight, printermemory) > 0) {
+        if (write_png(filenameX, imagePageSetWidth, imagePageSetHeight, printermemory) > 0) {
             // Create pdf file
             sprintf(filenameY, "%spage%d.pdf", pathpdf, page);
-            write_pdf(filenameX, filenameY, pageSetWidth, pageSetHeight);
+            write_pdf(filenameX, filenameY, imagePageSetWidth, imagePageSetHeight);
             erasesdl();
             erasepage();
             page++;
@@ -959,7 +975,7 @@ int test_for_new_paper()
 }
 
 int precedingDot(int x, int y) {
-    int pos = (y * pageSetWidth) + (x-1);
+    int pos = (y * imagePageSetWidth) + (x-1);
     if (printermemory[pos] == WHITE) return 0;
     return 1;
 }
@@ -967,7 +983,7 @@ int precedingDot(int x, int y) {
 void _clear_seedRow(int seedrowColour) {
     // colourSupport seedrows - each pixel is represented by a bit.
     if (seedrowColour > (colourSupport-1)) seedrowColour = colourSupport-1;
-    memset(seedrow + ((seedrowColour * pageSetWidth) /8), 0 , (pageSetWidth / 8));
+    memset(seedrow + ((seedrowColour * imagePageSetWidth) /8), 0 , (imagePageSetWidth / 8));
 }
 
 void _print_seedRows(float hPixelWidth, float vPixelWidth){
@@ -982,8 +998,8 @@ void _print_seedRows(float hPixelWidth, float vPixelWidth){
         if (seedrowColour == 3) printColour = 4; // Yellow
         if (seedrowColour == 4) printColour = 9; // Light Cyan
         if (seedrowColour == 5) printColour = 10; // Light Magenta
-        seedrowStart = (seedrowColour * pageSetWidth) /8;
-        seedrowEnd = seedrowStart + (pageSetWidth / 8);
+        seedrowStart = (seedrowColour * imagePageSetWidth) /8;
+        seedrowEnd = seedrowStart + (imagePageSetWidth / 8);
         bytePointer = seedrowStart + (xpos / 8);
         bitOffset = 7 - (xpos % 8);
         for (byteOffset = bytePointer; byteOffset < seedrowEnd; byteOffset++) {
@@ -1072,8 +1088,8 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
     if (seedrowColour == 4) seedrowColour = 3; // Colours are 0,1,2,4,9 & 10
     if (seedrowColour == 9) seedrowColour = 4; // Colours are 0,1,2,4,9 & 10
     if (seedrowColour == 10) seedrowColour = 5; // Colours are 0,1,2,4,9 & 10
-    seedrowStart = (seedrowColour * pageSetWidth) / 8;
-    seedrowEnd = seedrowStart + (pageSetWidth / 8);
+    seedrowStart = (seedrowColour * imagePageSetWidth) / 8;
+    seedrowEnd = seedrowStart + (imagePageSetWidth / 8);
 
     state = 0;
     while (state == 0) {
@@ -1268,12 +1284,12 @@ void _tiff_delta_printing(int compressMode, float hPixelWidth, float vPixelWidth
                 // Clear seedrow for current colour
                 _clear_seedRow(seedrowColour);
                 // Reset the current row on the paper to white and then add the other colours
-                bytePointer = ypos * pageSetWidth;
+                bytePointer = ypos * imagePageSetWidth;
                 // Clear display
                 colour = printColour;
                 printColour = 7; // White
                 xpos = marginleftp;
-                for (byteOffset = bytePointer; byteOffset < bytePointer + pageSetWidth; byteOffset++) {
+                for (byteOffset = bytePointer; byteOffset < bytePointer + imagePageSetWidth; byteOffset++) {
                     printermemory[byteOffset] = WHITE;
                     if (sdlon == 1) {
                         putpixelbig(xpos, ypos, hPixelWidth, vPixelWidth);
@@ -1578,10 +1594,10 @@ _line_raster_print(int bandHeight, int dotColumns, float hPixelWidth, float vPix
 
 void bitimage_graphics(int mode, int dotColumns) {
     switch (mode) {
-    case 0:  // 60 x 60 dpi 9 needles
-        hPixelWidth = printerdpih / (float) 60;
+    case 0:  // 80 x 80 dpi 9 needles
+        hPixelWidth = printerdpih / (float) 80;
         if (needles == 9) {
-            vPixelWidth = printerdpiv / (float) 72;  // ESCP definition
+            vPixelWidth = printerdpiv / (float) 80;  // ESCP definition
         } else {
             vPixelWidth = printerdpiv / (float) 60;  // ESCP2 definition
         }
@@ -1789,18 +1805,17 @@ int printcharx(unsigned char chr)
     character_spacing = 0;
 
     // Calculate the base pixel size for a 9-pin printer at the current cpi
-    // At default 10cpi and 12pixels per character (double density to allow half width offsets,
-    // only the first 9 can be printed), pixel width is 1/60"
-    // At default 6lpi and 12pixels per line (only the top 9 can be printed),
+    // At default 10cpi and 16pixels per character (double density to allow half width offsets,
+    // only the first 13 can be printed), pixel width is 1/80"
+    // At default 6lpi and 13+1/3 pixels per line (only the top 9 can be printed),
     // pixel height is 1/72"
-    hPixelWidth = printerdpih / ((float) cpi * (float) 12);
-    vPixelWidth = printerdpiv / ((float) lpi * (float) 12);
+    hPixelWidth = round(printerdpih / (cpi * (float) 16));
+    vPixelWidth = printerdpiv / ((float) lpi * ((float) 13 + (float) 1 / (float) 3));
     originalVPixelWidth = vPixelWidth;
-
-    // DRAFT QUALITY 120 x 144 dpi
-    // -- uses (120 / cpi) x 24 pixel font - default is 10 cpi (12 dots), 12 cpi (10 dots), 15 cpi (8 dots)
+    printf("hPixelWidth=%d, vPixelWidth=%d\n", hPixelWidth, vPixelWidth);
+    // DRAFT QUALITY 160 x 144 dpi
+    // -- uses (120 / cpi) x 24 pixel font - default is 10 cpi (16 dots), 12 cpi (10 dots), 15 cpi (8 dots)
     if (chrSpacing > 0) character_spacing = printerdpih * ((float) chrSpacing / (float) 120);
-
 
     // eigentlich sollte
     // das 16 sein da
@@ -1860,11 +1875,11 @@ int printcharx(unsigned char chr)
     if (underlined == 1)
     {
       putpixelbig(xpos, ypos + fontUnderscoreRow * originalVPixelWidth,
-                  12 * hPixelWidth + boldoffset, dotHeight + boldoffset11);
+                  dpch * hPixelWidth + boldoffset, dotHeight + boldoffset11);
     }
 
     // Add the actual character width
-    xpos += (hPixelWidth * 12);
+    xpos += (hPixelWidth * dpch);
 
     // Add any character spacing - taking account of any continuous line scoring of printing
     if (character_spacing>0) {
@@ -1921,7 +1936,7 @@ int print_space(int showUnderline)
 
     // DRAFT QUALITY 120 x 144 dpi
     // -- uses (120 / cpi) x 24 pixel font - default is 10 cpi (12 dots), 12 cpi (10 dots), 15 cpi (8 dots)
-    fontDotWidth = (float) hPixelWidth * (((float) 120 / (float) cpi) / (float) 8);
+    fontDotWidth = round((float) hPixelWidth * (((float) 120 / cpi) / (float) 8));
     fontDotHeight = (float) vPixelWidth * (float) charHeight / (float) 16;
     if (chrSpacing > 0) character_spacing = printerdpih * ((float) chrSpacing / (float) 180);
 
@@ -2000,7 +2015,9 @@ void print_character(unsigned char xChar)
     }
     // If out of paper area on the right side, do a newline and shift
     // printer head to the left
-    if (xpos > (marginrightp - hPixelWidth * 8)) {
+    printf("print_character: xpos=%d, marginrightp=%d, hPixelWidth=%d, (marginrightp - hPixelWidth * 16)=%d\n",
+        xpos, marginrightp, hPixelWidth, (marginrightp - hPixelWidth * 16));
+    if (xpos > (marginrightp - hPixelWidth * 16)) {
         xpos = marginleftp;
         ypos += line_spacing;
     }
@@ -2128,6 +2145,8 @@ void set_page_size(double width, double height)
     // All settings have to be in inches - 1 mm = (1/25.4)"
     pageSetWidth  = (int)(printerdpih * (width  / 25.4));
     pageSetHeight = (int)(printerdpiv * (height / 25.4));
+    imagePageSetWidth = (int)(imagedpih * (width / 25.4));
+    imagePageSetHeight = (int)(imagedpiv * (height / 25.4));
 }
 
 void set_page_margin(double left, double right, double top, double bottom)
@@ -2593,8 +2612,8 @@ int main(int argc, char *argv[])
     }
 
     // Set the video mode
-    xdim = pageSetWidth / divi;
-    ydim = pageSetHeight / divi;
+    xdim = imagePageSetWidth / divi;
+    ydim = imagePageSetHeight / divi;
     if (sdlon) {
         display = SDL_SetVideoMode(xdim, ydim, 24, SDL_HWSURFACE);
         if (display == NULL) {
@@ -2618,7 +2637,7 @@ main_loop_for_printing:
     if (sdlon) erasesdl();
     erasepage();
     // Clear tab marks
-    for (i = 0; i < 32; i++) hTabulators[i] = (printerdpih / cpi) * (8*i); // Default is every 8 characters
+    for (i = 0; i < 32; i++) hTabulators[i] = round(printerdpih / cpi) * (8*i); // Default is every 8 characters
     for (i = 0; i < (16 * 8); i++) vTabulators[i] = 0;
 
     i = 0;
@@ -2667,7 +2686,6 @@ main_loop_for_printing:
                 case '@':    // ESC @ Initialize
                     cpi                    =  10;
                     pitch                  =  10;
-                    hmi                    = printerdpih * ((float) 36 / (float) 360); // Reset HMI
                     line_spacing           = printerdpiv * ((float) 1 / (float) 6); // normally 1/6 inch line spacing
                     chrSpacing             =   0;
                     dpih                   = 240;
@@ -3062,7 +3080,7 @@ main_loop_for_printing:
             case 136:
                 xposold = xpos;
                 hPixelWidth = printerdpih / (float) cdpih;
-                hPixelWidth = (float) hPixelWidth * (((float) 120 / (float) cpi) / (float) 8);
+                hPixelWidth = round((float) hPixelWidth * (((float) 120 / (float) cpi) / (float) 8));
                 xpos -= hPixelWidth * 8;
                 if (xpos < 0) xpos = xposold;
                 break;
@@ -3153,14 +3171,13 @@ main_loop_for_printing:
                 break;
             case 14:    // SO Shift Out (do nothing) Select double Width printing (for one line)
             case 142:
-                hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
                 double_width_single_line = 1;
                 break;
             case 15:    // SI Shift In (do nothing) Condensed printing on
             case 143:
-                hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
-                if (pitch==10) cpi=17.14;
+                if (pitch==10) cpi=17.75;
                 if (pitch==12) cpi=20;
+                printf("cpi=%f\n", cpi);
                 // Add for proportional font = 1/2 width - to be written
                 break;
             case 16:    // DLE Data Link Escape (do nothing)
@@ -3174,7 +3191,6 @@ main_loop_for_printing:
                 break;
             case 18:    // DC2 (Device Control 2) Condensed printing off, see 15
             case 146:
-                hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
                 if (pitch==10) cpi=10;
                 if (pitch==12) cpi=12;
                 // Add for proportional font = full width
@@ -3191,7 +3207,6 @@ main_loop_for_printing:
                 // Intended to turn off, stop or interrupt an ancillary device, or for
                 // any other device control function.
                 // Also turns off double-width printing for one line
-                hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
                 double_width_single_line = 0;
                 break;
             case 21:    // NAK Negative Acknowledgement (do nothing)
@@ -3234,7 +3249,7 @@ main_loop_for_printing:
                 hPixelWidth = printerdpih / (float) cdpih;
                 vPixelWidth = printerdpiv / (float) cdpiv;
                 int charHeight = 24;
-                hPixelWidth = (float) hPixelWidth * (((float) 120 / (float) cpi) / (float) 8);
+                hPixelWidth = round((float) hPixelWidth * (((float) 120 / cpi) / (float) 8));
                 vPixelWidth = (float) vPixelWidth * ((float) charHeight / (float) 16);
                 xpos += hPixelWidth * 8;
                 if (xpos > ((pageSetWidth - 1) - vPixelWidth * 16)) {
@@ -3256,7 +3271,6 @@ main_loop_for_printing:
                     cpi                    =  10;
                     pitch                  =  10;
                     graphics_mode          =   0;
-                    hmi                    = printerdpih * ((float) 36 / (float) 360); // Reset HMI
                     line_spacing           = printerdpiv * ((float) 1 / (float) 6); // normally 1/6 inch line spacing
                     chrSpacing             =   0;
                     dpih                   = 240;
@@ -3319,26 +3333,23 @@ main_loop_for_printing:
                     break;
                 case 'M':    // ESC M Select 10.5-point, 12-cpi
                     // Note - if printer in proportional mode, only takes effect when exits proportional mode
-                    hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
                     cpi = 12;
                     pitch=12;
                     break;
                 case 'P':     // ESC P Set 10.5-point, 10-cpi
                     // Note - if printer in proportional mode, only takes effect when exits proportional mode
-                    hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
                     cpi = 10;
                     pitch=10;
                     break;
                 case 'g':    // ESC g Select 10.5-point, 15-cpi
                     // Note - if printer in proportional mode, only takes effect when exits proportional mode
-                    hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
                     cpi = 15;
                     pitch=15;
                     break;
                 case 'l':    // ESC l m set the left margin m in characters
                     state = read_byte_from_file((char *) &xd);
                     marginleft = (int) xd;
-                    marginleftp = (printerdpih / (float) cpi) * (float) marginleft;  // rand in pixels
+                    marginleftp = round((printerdpih / cpi) * (float) marginleft);  // rand in pixels
                     // von links
                     // Wenn Marginleft ausserhalb des bereiches dann auf 0 setzen
                     // (fehlerbehandlung)
@@ -3351,7 +3362,7 @@ main_loop_for_printing:
                         // maximum 32 tabs are allowed last
                         // tab is always 0 to finish list
                         state = read_byte_from_file((char *) &xd);
-                        xd = (printerdpih / (float) cpi) * (float) xd; // each tab is specified in number of characters in current character pitch
+                        xd = round((printerdpih / cpi) * (float) xd); // each tab is specified in number of characters in current character pitch
                         if (i > 0 && xd < hTabulators[i-1]) {
                             // Value less than previous tab setting ends the settings like NUL
                             xd = 0;
@@ -3437,7 +3448,7 @@ main_loop_for_printing:
                 case 'Q':    // ESC Q m set the right margin
                     state = read_byte_from_file((char *) &xd);
                     marginright = (int) xd;
-                    marginrightp = (printerdpih / (float) cpi) * (float) marginright;  // rand in pixels
+                    marginrightp = round((printerdpih / cpi) * (float) marginright);  // rand in pixels
                     // von links
                     break;
                 case 'J':    // ESC J m Forward paper feed m/180 inches (ESC/P2)
@@ -3465,7 +3476,7 @@ main_loop_for_printing:
                             break;
                     }
                     break;
-                case 'K':    // ESC K nL nH d1 d2...dk Select 60 dpi graphics
+                case 'K':    // ESC K nL nH d1 d2...dk Select 80 dpi graphics
                     state = read_byte_from_file((char *) &nL);
                     if (state == 0) break;
                     state = read_byte_from_file((char *) &nH);
@@ -3558,7 +3569,6 @@ main_loop_for_printing:
                 case 'p':    // ESC p n Turn proportional mode on/off off--> n=0
                     // or 48 on --> n=1 or 49
                     // not implemented yet
-                    hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
                     state = read_byte_from_file((char *) &nL);
                     if ((nL==1) || (nL==49)) {
                         proportionalSpacing = 1;
@@ -3594,7 +3604,6 @@ main_loop_for_printing:
                     break;
                 case 'W':    // ESC W SELECT DOUBLE WIDTH
                     state = read_byte_from_file((char *) &nL);
-                    hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
                     if ((nL==1) || (nL==49)) double_width=1;
                     if ((nL==0) || (nL==48)) {
                         double_width=0;
@@ -3608,7 +3617,6 @@ main_loop_for_printing:
                     italic = 0;
                     break;
                 case '!':    // ESC ! n Master Font Select
-                    hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
                     state = read_byte_from_file((char *) &nL);
                     if ( isNthBitSet(nL, 0) ) {
                         // 12 CPI
@@ -3626,7 +3634,7 @@ main_loop_for_printing:
                     }
                     if ( isNthBitSet(nL, 2) ) {
                         // Select Condensed mode
-                        if (pitch==10) cpi=17.14;
+                        if (pitch==10) cpi=17.75;
                         if (pitch==12) cpi=20;
                     } else {
                         // Cancel Condensed mode
@@ -4141,13 +4149,6 @@ main_loop_for_printing:
                     ypos -= (float) printerdpiv * ((float) nL /(float) 216);
                     if (ypos < margintopp) ypos = margintopp;
                     break;
-                case 'c':
-                    // ESC c nL nH Set Horizonal Motion Index (HMI)
-                    // not implemented yet
-                    state = read_byte_from_file((char *) &nL);
-                    state = read_byte_from_file((char *) &nH);
-                    hmi = printerdpih * ((float) (nH *256) + (float) nL / (float) 360);
-                    break;
                 case 'U':    // Turn unidirectional mode on/off ESC U n n = 0 or
                     // 48 Bidirectional 1 or 49 unidirectional
                     // not required
@@ -4278,7 +4279,6 @@ main_loop_for_printing:
                     break;
                 case 20:    // ESC SP Set intercharacter space
                     state = read_byte_from_file((char *) &nL);
-                    hmi = printerdpih * ((float) 36 / (float) 360); // Reset HMI
                     chrSpacing = nL;
                     break;
                 case 25:    // ESC EM n Control paper loading / ejecting (do nothing)
@@ -4302,7 +4302,7 @@ main_loop_for_printing:
                     double_width_single_line = 1;
                     break;
                 case 15:    // ESC SI Shift In Condensed printing on
-                    if (pitch==10) cpi=17.14;
+                    if (pitch==10) cpi=17.75;
                     if (pitch==12) cpi=20;
                     // Add for proportional font = 1/2 width - to be written
                     break;
@@ -4318,7 +4318,7 @@ main_loop_for_printing:
     if (!quiet_mode) printf("\n\nI am at page %d\n", page);
 
     sprintf(filenameX, "%spage%d.png", pathpng, page);
-    int dataToConvert = write_png(filenameX, pageSetWidth, pageSetHeight, printermemory);
+    int dataToConvert = write_png(filenameX, imagePageSetWidth, imagePageSetHeight, printermemory);
 
     if (outputFormatText == 0) {
         // No end of line conversion required
@@ -4338,7 +4338,7 @@ main_loop_for_printing:
     if (dataToConvert > 0) {
         sprintf(filenameX, "%spage%d.png", pathpng, page);
         sprintf(filenameY, "%spage%d.pdf", pathpdf, page);
-        write_pdf(filenameX, filenameY, pageSetWidth, pageSetHeight);
+        write_pdf(filenameX, filenameY, imagePageSetWidth, imagePageSetHeight);
     }
 
     if ((fp != NULL)) {
