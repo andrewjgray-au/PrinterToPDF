@@ -1794,12 +1794,6 @@ int printcharx(unsigned char chr)
     int character_spacing;
 
     chr2 = (unsigned int) chr;
-    if (!use8bitchars && useItalicsCharSet && chr2 >= 160) {
-        // In this case characters with ASCII 160-255 are treated as italic versions of the original
-        extendedChar = 1;
-        chr2 = chr2 - 128; // Normally upper character set - italic version of the lower character set
-        chr = (unsigned char) chr2;
-    }
     adressOfChar = chr2 * fontRows * fontBytes;  // Multiply with rows per character and
                                                  // bytes per row to get address
     character_spacing = 0;
@@ -1812,7 +1806,6 @@ int printcharx(unsigned char chr)
     hPixelWidth = round(printerdpih / (cpi * (float) 16));
     vPixelWidth = printerdpiv / ((float) lpi * ((float) 13 + (float) 1 / (float) 3));
     originalVPixelWidth = vPixelWidth;
-    printf("hPixelWidth=%d, vPixelWidth=%d\n", hPixelWidth, vPixelWidth);
     // DRAFT QUALITY 160 x 144 dpi
     // -- uses (120 / cpi) x 24 pixel font - default is 10 cpi (16 dots), 12 cpi (10 dots), 15 cpi (8 dots)
     if (chrSpacing > 0) character_spacing = printerdpih * ((float) chrSpacing / (float) 120);
@@ -2485,27 +2478,9 @@ int main(int argc, char *argv[])
             case 'a':
                 auto_LF = 1;
                 break;
-                
-            case '8':
-                if (useItalicsCharSet) {
-                    fprintf(stderr, "%s: options '-8' and '-i' cannot be combined\n", argv[0]);
-                    usage_hint(argv[0]);
-                    return 2;
-                } else {
-                    use8bitchars = 1;
-                }
-
-                break;
 
             case 'i':
-                if (use8bitchars) {
-                    fprintf(stderr, "%s: options '-8' and '-i' cannot be combined.\n", argv[0]);
-                    usage_hint(argv[0]);
-                    return 2;
-                } else {
-                    useItalicsCharSet = 1;
-                }
-
+                useItalicsCharSet = 1;
                 break;
 
             case 'q':
@@ -2628,8 +2603,8 @@ int main(int argc, char *argv[])
         SDL_UpdateRect(display, 0, 0, 0, 0);
     }
 
-    // Do we support 8 Bit printing - in which case, upper control codes are ignored!
-    if (use8bitchars) print_uppercontrolcodes = 1;
+    // Upper control codes are ignored!
+    print_uppercontrolcodes = 1;
 
 main_loop_for_printing:
     xpos = marginleftp;
@@ -2704,8 +2679,7 @@ main_loop_for_printing:
                     outline_printing       =   0;
                     shadow_printing        =   0;
                     print_controlcodes     =   0;
-                    print_uppercontrolcodes =  0;
-                    if (use8bitchars) print_uppercontrolcodes = 1;
+                    print_uppercontrolcodes =  1;
                     graphics_mode          =   0;
                     microweave_printing    =   0;
                     vTabulatorsSet         =   0;
@@ -3044,9 +3018,6 @@ main_loop_for_printing:
                     break;
                 }
             }
-
-        } else if (print_uppercontrolcodes == 1 && (useItalicsCharSet || use8bitchars) && (xd >= (int) 128) && (xd <= (int) 159)) {
-            print_character(xd);
         } else if (print_controlcodes == 1 && (xd <= (int) 127)) {
             print_character(xd);
         } else {
@@ -3054,24 +3025,6 @@ main_loop_for_printing:
             switch (xd) {
             case 0:    // NULL do nothing
             case 128:
-                break;
-            case 1:    // SOH do nothing
-            case 129:
-                break;
-            case 2:    // STX do nothing
-            case 130:
-                break;
-            case 3:    // ETX do nothing
-            case 131:
-                break;
-            case 4:    // EOT do nothing
-            case 132:
-                break;
-            case 5:    // ENQ do nothing
-            case 133:
-                break;
-            case 6:    // ACK do nothing
-            case 134:
                 break;
             case 7:    // BEL do nothing
             case 135:
@@ -3180,27 +3133,11 @@ main_loop_for_printing:
                 printf("cpi=%f\n", cpi);
                 // Add for proportional font = 1/2 width - to be written
                 break;
-            case 16:    // DLE Data Link Escape (do nothing)
-            case 144:
-                break;
-            case 17:    // DC1 (Device Control 1)
-            case 145:
-                // Intended to turn on or start an ancillary device, to restore it to
-                // the basic operation mode (see DC2 and DC3), or for any
-                // other device control function.
-                break;
             case 18:    // DC2 (Device Control 2) Condensed printing off, see 15
             case 146:
                 if (pitch==10) cpi=10;
                 if (pitch==12) cpi=12;
                 // Add for proportional font = full width
-                break;
-            case 19:    // DC3 (Device Control 3)
-            case 147:
-                // Intended for turning off or stopping an ancillary device. It may be a
-                // secondary level stop such as wait, pause,
-                // stand-by or halt (restored via DC1). Can also perform any other
-                // device control function.
                 break;
             case 20:    // DC4 (Device Control 4)
             case 148:
@@ -3209,36 +3146,8 @@ main_loop_for_printing:
                 // Also turns off double-width printing for one line
                 double_width_single_line = 0;
                 break;
-            case 21:    // NAK Negative Acknowledgement (do nothing)
-            case 149:
-                break;
-            case 22:    // Syn Synchronus idle (do nothing)
-            case 150:
-                break;
-            case 23:    // ETB End Of Transmition Block (do nothing)
-            case 151:
-                break;
-            case 24:    // CAN Cancel (do nothing)
-            case 152:
-                // Not implemented - normally wipes the current line of all characters and graphics
-                xpos = marginleftp;
-                break;
-            case 25:    // EM End Of Medium (do nothing)
-            case 153:
-                break;
-            case 26:    // SUB Substitute (do nothing)
-            case 154:
-                break;
             case 27:    // ESC Escape (do nothing, will be processed later in this code)
             case 155:
-                break;
-            case 28:    // FS File Separator (do nothing)
-                break;
-            case 29:    // GS Group Separator (do nothing)
-                break;
-            case 30:    // RS Record Separator (do nothing)
-                break;
-            case 31:    // US Unit Separator (do nothing)
                 break;
             case 127:    // DEL (do nothing)
                 // Not implemented - normally deletes the last character to be printed on the current line
@@ -3289,8 +3198,7 @@ main_loop_for_printing:
                     outline_printing       =   0;
                     shadow_printing        =   0;
                     print_controlcodes     =   0;
-                    print_uppercontrolcodes =  0;
-                    if (use8bitchars) print_uppercontrolcodes = 1;
+                    print_uppercontrolcodes =  1;
                     vTabulatorsSet         =   0;
                     vTabulatorsCancelled   =   0;
                     defaultUnit            =   0;
@@ -4250,13 +4158,6 @@ main_loop_for_printing:
                     if (italic == 0 ) {
                         if (nL==1) print_controlcodes = 1;
                         if (nL==0) print_controlcodes = 0;
-                    }
-                    break;
-                case 'm':    // ESC m n - Select printing of upper control codes
-                    state = read_byte_from_file((char *) &nL);
-                    if (italic == 0 ) {
-                        if (nL==0) print_uppercontrolcodes=1;
-                        if (nL==4 && !use8bitchars) print_uppercontrolcodes=0;
                     }
                     break;
                 case 'r':
