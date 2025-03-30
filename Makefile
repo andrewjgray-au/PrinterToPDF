@@ -12,11 +12,12 @@ UNAME_M := $(shell uname -m)
 
 CFLAGS = -O3 \
          -funsafe-math-optimizations \
-         $(shell sdl-config --cflags)
+         $(shell sdl-config --cflags) \
+				 -I$(shell brew --prefix)/include
 ifneq (,$(findstring arm, $UNAME_M))
 CLAGS += -mfloat-abi=hard -mno-unaligned-access
 endif
-LDFLAGS = $(shell sdl-config --libs)
+LDFLAGS = $(shell sdl-config --libs) $(shell libpng-config --ldflags)
 LDLIBS = -lhpdf -lpng
 ifneq ($(UNAME), Darwin)
 LDLIBS += -lrt
